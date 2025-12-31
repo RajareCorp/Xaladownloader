@@ -294,8 +294,7 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	filename := sanitizeFileName(rawTitle) + ".mp4"
 
 	// ----------- Obtenir l'URL du fichier vidéo ----------
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
+	ctx := r.Context()
 
 	videoURL, err := getVideoURL(ctx, detail)
 	if err != nil {
