@@ -368,7 +368,7 @@ func main() {
 	// Nouvelle API téléchargement qui prend le paramètre `detail`
 	http.HandleFunc("/api/download", downloadHandler)
 
-	fmt.Println("🚀 XalaDownloader démarre sur :8080")
+	fmt.Println("🚀 XalaDownloader démarre sur 127.0.0.1:8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		panic(err)
 	}
