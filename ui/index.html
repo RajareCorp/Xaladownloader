@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <title>XalaDownloader – By Rajare</title>
-<link rel="icon" href="data:,"> <!-- évite les requêtes favicon inutiles -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Téléchargez facilement des films et séries depuis Xalaflix !">
+<link rel="icon" type="image/png" href="icon.png">
 
 <style>
 /* --------------------------------------------------------------
@@ -201,15 +203,6 @@ progress::-moz-progress-bar {
 
 <h2>XalaDownloader - By Rajare</h2>
 
-<!-- ==== Configuration de l'URL de base ==== -->
-<form id="base-url-form">
-  <label for="base-url-input">Base URL Xalaflix :</label>
-  <input id="base-url-input" type="text"
-         placeholder="https://xalaflix.men"
-         autocomplete="off"/>
-  <button type="submit">Sauvegarder</button>
-</form>
-
 <!-- ==== Champ de recherche ==== -->
 <input id="search" placeholder="Rechercher un film…" autocomplete="off"/>
 
@@ -244,23 +237,24 @@ search.oninput = async () => {
     items.forEach(m => {
       const li = document.createElement('li');
 
-      // --- Vignette ---
       const img = document.createElement('img');
-      img.src   = m.thumbUrl;
-      img.alt   = m.title;
+      img.src = m.thumbUrl;
+      img.alt = m.title;
       img.className = 'thumb';
-      li.appendChild(img);
 
-      // --- Titre ---
       const span = document.createElement('span');
       span.textContent = m.title;
       span.className = 'title';
+
+      li.appendChild(img);
       li.appendChild(span);
 
-      // --- Clic → téléchargement ---
       li.onclick = () => {
-        const dlUrl = `/api/download?detail=${encodeURIComponent(m.detailUrl)}&title=${encodeURIComponent(m.title)}`;
-        download(dlUrl);
+        if (m.kind === "movie") {
+          download(`/api/download?detail=${encodeURIComponent(m.detailUrl)}&title=${encodeURIComponent(m.title)}`);
+        } else if (m.kind === "series") {
+          loadSeasons(m);
+        }
       };
 
       results.appendChild(li);
@@ -311,33 +305,58 @@ function download(url) {
   document.body.removeChild(a);
 }
 
-/* --------------------------------------------------------------
-   Mise à jour de l'URL de base (admin endpoint)
-   -------------------------------------------------------------- */
-document.getElementById('base-url-form')
-        .addEventListener('submit', async e => {
-  e.preventDefault();
-  const url = document.getElementById('base-url-input').value.trim();
-  if (!url) return alert('Veuillez entrer une URL.');
+async function loadSeasons(series) {
+  results.innerHTML = '';
+  bar.hidden = true;
 
-  try {
-    const res = await fetch('/admin/base-url', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({base_url: url})
-    });
+  const res = await fetch(`/api/series/seasons?detail=${encodeURIComponent(series.detailUrl)}`);
+  const seasons = await res.json();
 
-    if (res.ok) {
-      alert('Base URL mise à jour ! Toutes les nouvelles recherches utiliseront la nouvelle adresse.');
-    } else {
-      const txt = await res.text();
-      alert('Erreur : ' + txt);
-    }
-  } catch (e) {
-    console.error('admin error:', e);
-    alert('Impossible de contacter le serveur.');
-  }
-});
+  seasons.forEach(s => {
+    const li = document.createElement('li');
+
+    const img = document.createElement('img');
+    img.src = s.thumbUrl;
+    img.className = 'thumb';
+
+    const span = document.createElement('span');
+    span.textContent = s.title;
+    span.className = 'title';
+
+    li.appendChild(img);
+    li.appendChild(span);
+
+    li.onclick = () => loadEpisodes(series, s);
+
+    results.appendChild(li);
+  });
+}
+
+async function loadEpisodes(series, season) {
+  results.innerHTML = '';
+  bar.hidden = true;
+
+  const res = await fetch(`/api/series/episodes?season=${encodeURIComponent(season.url)}`);
+  const episodes = await res.json();
+
+  episodes.forEach((e, idx) => {
+    const li = document.createElement('li');
+
+    const span = document.createElement('span');
+    span.textContent = e.title || `Épisode ${idx + 1}`;
+    span.className = 'title';
+
+    li.appendChild(span);
+
+    li.onclick = () => {
+      const filename = `${series.title} - ${season.title} - ${e.title}`;
+      download(`/api/download?detail=${encodeURIComponent(e.url)}&title=${encodeURIComponent(filename)}`);
+    };
+
+    results.appendChild(li);
+  });
+}
+
 </script>
 
 </body>
