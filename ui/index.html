@@ -2,14 +2,14 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>XalaDownloader – By Rajare</title>
+<title>XalaDownloader - By Rajare</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Téléchargez facilement des films et séries depuis Xalaflix !">
 <link rel="icon" type="image/png" href="icon.png">
 
 <style>
 /* --------------------------------------------------------------
-   Variables de couleur – facile à ajuster ou à passer en dark/light
+   Variables de couleur - facile à ajuster ou à passer en dark/light
    -------------------------------------------------------------- */
 :root {
     --bg-primary:      #1e1e2f;   /* arrière‑plan principal */
@@ -221,7 +221,7 @@ const results  = document.getElementById('results');
 const bar      = document.getElementById('bar');
 
 /* --------------------------------------------------------------
-   Recherche – déclenchée dès que l'utilisateur tape ≥2 caractères
+   Recherche - déclenchée dès que l'utilisateur tape ≥2 caractères
    -------------------------------------------------------------- */
 search.oninput = async () => {
   if (search.value.length < 2) {
@@ -250,11 +250,7 @@ search.oninput = async () => {
       li.appendChild(span);
 
       li.onclick = () => {
-        if (m.kind === "movie") {
-          download(`/api/download?detail=${encodeURIComponent(m.detailUrl)}&title=${encodeURIComponent(m.title)}`);
-        } else if (m.kind === "series") {
-          loadSeasons(m);
-        }
+        download(`/api/download?detail=${m.id}&title=${encodeURIComponent(m.title)}`);
       };
 
       results.appendChild(li);
@@ -303,58 +299,6 @@ function download(url) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-}
-
-async function loadSeasons(series) {
-  results.innerHTML = '';
-  bar.hidden = true;
-
-  const res = await fetch(`/api/series/seasons?detail=${encodeURIComponent(series.detailUrl)}`);
-  const seasons = await res.json();
-
-  seasons.forEach(s => {
-    const li = document.createElement('li');
-
-    const img = document.createElement('img');
-    img.src = s.thumbUrl;
-    img.className = 'thumb';
-
-    const span = document.createElement('span');
-    span.textContent = s.title;
-    span.className = 'title';
-
-    li.appendChild(img);
-    li.appendChild(span);
-
-    li.onclick = () => loadEpisodes(series, s);
-
-    results.appendChild(li);
-  });
-}
-
-async function loadEpisodes(series, season) {
-  results.innerHTML = '';
-  bar.hidden = true;
-
-  const res = await fetch(`/api/series/episodes?season=${encodeURIComponent(season.url)}`);
-  const episodes = await res.json();
-
-  episodes.forEach((e, idx) => {
-    const li = document.createElement('li');
-
-    const span = document.createElement('span');
-    span.textContent = e.title || `Épisode ${idx + 1}`;
-    span.className = 'title';
-
-    li.appendChild(span);
-
-    li.onclick = () => {
-      const filename = `${series.title} - ${season.title} - ${e.title}`;
-      download(`/api/download?detail=${encodeURIComponent(e.url)}&title=${encodeURIComponent(filename)}`);
-    };
-
-    results.appendChild(li);
-  });
 }
 
 </script>

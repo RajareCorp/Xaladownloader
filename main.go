@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,21 +36,30 @@ const developerTag = `
 
 // Media représente le résultat que le front‑end consomme.
 type Media struct {
-	Title     string `json:"title"`
-	DetailURL string `json:"detailUrl"`
-	ThumbURL  string `json:"thumbUrl"`
-	Kind      string `json:"kind"` // "movie" | "series"
+	Title    string `json:"title"`
+	ID       int    `json:"id"`
+	ThumbURL string `json:"thumbUrl"`
+	Kind     string `json:"kind"` // "movie" | "series"
 }
 
-type Season struct {
-	Title string `json:"title"`
-	URL   string `json:"url"`
-	Thumb string `json:"thumbUrl"`
+// Définition corrigée des structures pour correspondre au JSON réel
+type PurestreamResponse struct {
+	Data struct {
+		Items struct {
+			Movies struct {
+				Items []PurestreamMovie `json:"items"`
+			} `json:"movies"`
+		} `json:"items"`
+	} `json:"data"`
 }
 
-type Episode struct {
-	Title string `json:"title"`
-	URL   string `json:"url"`
+type PurestreamMovie struct {
+	ID      int    `json:"id"`
+	Title   string `json:"title"`
+	Type    string `json:"type"`
+	Posters struct {
+		Large string `json:"large"`
+	} `json:"posters"`
 }
 
 var BaseURL string
@@ -58,7 +68,7 @@ func InitApp() {
 	url, err := FetchBaseURL()
 	if err != nil {
 		log.Println("Impossible de détecter l'URL officielle, fallback :", err)
-		BaseURL = "https://xalaflix.men"
+		BaseURL = "https://api.purstream.to"
 		return
 	}
 
@@ -130,16 +140,17 @@ func fetchMedia(ctx context.Context, query string) ([]Media, error) {
 		return nil, fmt.Errorf("empty query")
 	}
 
-	// Encode la requête pour éviter les caractères spéciaux.
 	escaped := url.QueryEscape(query)
-	remote := fmt.Sprintf(BaseURL+"/search_elastic?s=%s", escaped)
+	// BaseURL doit être défini quelque part (ex: https://purstream.to)
+	remote := fmt.Sprintf("%s/api/v1/search-bar/search/%s", BaseURL, escaped)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, remote, nil)
 	if err != nil {
 		return nil, err
 	}
-	// Un User‑Agent raisonnable évite d'être bloqué par certains serveurs.
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/")
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Accept", "application/json") // On précise qu'on veut du JSON
 
 	client := &http.Client{Timeout: 12 * time.Second}
 	resp, err := client.Do(req)
@@ -152,146 +163,27 @@ func fetchMedia(ctx context.Context, query string) ([]Media, error) {
 		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return nil, err
+	// On décode directement le flux JSON
+	var apiData PurestreamResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiData); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON: %v", err)
 	}
 
 	results := []Media{}
 
-	doc.Find(".single-video").Each(func(i int, s *goquery.Selection) {
-		linkTag := s.Find("a")
-		href, _ := linkTag.Attr("href")
-
-		imgTag := s.Find("img")
-		src, _ := imgTag.Attr("src")
-
-		title := imgTag.AttrOr("alt", imgTag.AttrOr("title", ""))
-		if title == "" {
-			title = s.Find("span.video-item-content").Text()
+	// On boucle uniquement sur la section 'movies' du JSON
+	for _, m := range apiData.Data.Items.Movies.Items {
+		if m.Type == "movie" {
+			results = append(results, Media{
+				Title:    m.Title,
+				ID:       m.ID,
+				ThumbURL: m.Posters.Large,
+				Kind:     "movie",
+			})
 		}
-
-		if href == "" || src == "" || title == "" {
-			return
-		}
-
-		kind := "movie"
-		if strings.Contains(href, "/shows/details/") {
-			kind = "series"
-		}
-
-		results = append(results, Media{
-			Title:     title,
-			DetailURL: href,
-			ThumbURL:  src,
-			Kind:      kind,
-		})
-	})
+	}
 
 	return results, nil
-}
-
-func fetchSeasons(ctx context.Context, detailURL string) ([]Season, error) {
-	base, _ := url.Parse(BaseURL)
-	abs, _ := base.Parse(detailURL)
-
-	req, _ := http.NewRequestWithContext(ctx, "GET", abs.String(), nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	req.Header.Set("Referer", BaseURL)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	doc, _ := goquery.NewDocumentFromReader(resp.Body)
-
-	seasons := []Season{}
-
-	doc.Find(".season-item-related .single-video a").Each(func(i int, s *goquery.Selection) {
-		title := s.AttrOr("title", "")
-		href := s.AttrOr("href", "")
-		img := s.Find("img").AttrOr("src", "")
-
-		if title != "" && href != "" {
-			seasons = append(seasons, Season{
-				Title: title,
-				URL:   href,
-				Thumb: img,
-			})
-		}
-	})
-
-	return seasons, nil
-}
-
-func fetchEpisodes(ctx context.Context, seasonURL string) ([]Episode, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", seasonURL, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	req.Header.Set("Referer", BaseURL)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	doc, _ := goquery.NewDocumentFromReader(resp.Body)
-
-	episodes := []Episode{}
-
-	doc.Find(".single-video a").Each(func(i int, s *goquery.Selection) {
-		title := s.AttrOr("title", "")
-		href := s.AttrOr("href", "")
-
-		if title != "" && href != "" {
-			episodes = append(episodes, Episode{
-				Title: title,
-				URL:   href,
-			})
-		}
-	})
-
-	return episodes, nil
-}
-
-func seasonsHandler(w http.ResponseWriter, r *http.Request) {
-	detail := r.URL.Query().Get("detail")
-	if detail == "" {
-		http.Error(w, "missing detail", 400)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	seasons, err := fetchSeasons(ctx, detail)
-	if err != nil {
-		http.Error(w, err.Error(), 502)
-		return
-	}
-
-	json.NewEncoder(w).Encode(seasons)
-}
-
-func episodesHandler(w http.ResponseWriter, r *http.Request) {
-	season := r.URL.Query().Get("season")
-	if season == "" {
-		http.Error(w, "missing season", 400)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	episodes, err := fetchEpisodes(ctx, season)
-	if err != nil {
-		http.Error(w, err.Error(), 502)
-		return
-	}
-
-	json.NewEncoder(w).Encode(episodes)
 }
 
 // sanitizeFileName enlève les caractères interdits sur Windows/macOS/Linux
@@ -328,29 +220,31 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// getVideoURL scrapes the detail page and returns the src attribute
-// found inside <div id="video-source"> (or any <source> tag there).
-func getVideoURL(ctx context.Context, detailURL string) (string, error) {
-	// On veut absolument un URL absolu. Si le lien est relatif,
-	// on le résout par rapport à BaseURL
-	base, err := url.Parse(BaseURL)
-	if err != nil {
-		return "", err
-	}
-	absDetail, err := base.Parse(detailURL)
+type SheetResponse struct {
+	Data struct {
+		Items struct {
+			ID   int `json:"id"`
+			Urls []struct {
+				URL  string `json:"url"`
+				Name string `json:"name"`
+			} `json:"urls"`
+		} `json:"items"`
+	} `json:"data"`
+}
+
+func getVideoURL(ctx context.Context, id int) (string, error) {
+	// Construction de l'URL de la "sheet"
+	remote := fmt.Sprintf("%s/api/v1/media/%d/sheet", BaseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, remote, nil)
 	if err != nil {
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, absDetail.String(), nil)
-	if err != nil {
-		return "", err
-	}
-	// Un UA standard évite d'être bloqué.
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
-	req.Header.Set("Referer", BaseURL)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: 12 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -358,35 +252,22 @@ func getVideoURL(ctx context.Context, detailURL string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("detail page returned %d", resp.StatusCode)
+		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", err
+	// Décodage du JSON
+	var sheet SheetResponse
+	if err := json.NewDecoder(resp.Body).Decode(&sheet); err != nil {
+		return "", fmt.Errorf("failed to decode sheet JSON: %v", err)
 	}
 
-	var videoURL string
-	doc.Find("video#player source").Each(func(i int, s *goquery.Selection) {
-		if src, ok := s.Attr("src"); ok {
-			videoURL = src
-		}
-	})
-
-	if videoURL == "" {
-		return "", fmt.Errorf("no video src found in %s", detailURL)
+	// On vérifie si on a au moins une URL disponible dans le tableau 'urls'
+	if len(sheet.Data.Items.Urls) > 0 {
+		// On retourne la première URL (souvent la VF)
+		return sheet.Data.Items.Urls[0].URL, nil
 	}
 
-	// Résolution d'un éventuel URL relatif
-	u, err := url.Parse(videoURL)
-	if err != nil {
-		return "", err
-	}
-	if !u.IsAbs() {
-		// On le rend absolu par rapport au domaine principal
-		u = base.ResolveReference(u)
-	}
-	return u.String(), nil
+	return "", fmt.Errorf("no video URL found for media %d", id)
 }
 
 func downloadHandler(w http.ResponseWriter, r *http.Request) {
@@ -396,6 +277,7 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing ?detail= parameter", http.StatusBadRequest)
 		return
 	}
+
 	rawTitle := r.URL.Query().Get("title")
 	if rawTitle == "" {
 		rawTitle = "video"
@@ -405,7 +287,14 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	// ----------- Obtenir l'URL du fichier vidéo ----------
 	ctx := r.Context()
 
-	videoURL, err := getVideoURL(ctx, detail)
+	detailID, err := strconv.Atoi(detail)
+	if err != nil {
+		http.Error(w, "invalid detail parameter: "+err.Error(),
+			http.StatusBadRequest)
+		return
+	}
+
+	videoURL, err := getVideoURL(ctx, detailID)
 	if err != nil {
 		http.Error(w, "cannot obtain video URL: "+err.Error(),
 			http.StatusBadGateway)
@@ -472,9 +361,6 @@ func main() {
 
 	// Nouvelle API téléchargement qui prend le paramètre `detail`
 	http.HandleFunc("/api/download", downloadHandler)
-
-	http.HandleFunc("/api/series/seasons", seasonsHandler)
-	http.HandleFunc("/api/series/episodes", episodesHandler)
 
 	go func() {
 		fmt.Println("XalaDownloader démarre sur http://127.0.0.1:8080")
