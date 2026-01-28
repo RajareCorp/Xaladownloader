@@ -6,302 +6,44 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Téléchargez facilement des films et séries depuis Xalaflix !">
 <link rel="icon" type="image/png" href="icon.png">
-
-<style>
-/* --------------------------------------------------------------
-   Variables de couleur - facile à ajuster ou à passer en dark/light
-   -------------------------------------------------------------- */
-:root {
-    --bg-primary:      #1e1e2f;   /* arrière‑plan principal */
-    --bg-card:         #262637;   /* fond des cartes (vignettes) */
-    --bg-input:        #2a2a3b;   /* champs de saisie */
-    --color-text:      #e0e0e8;   /* texte principal */
-    --color-muted:     #a0a0b0;   /* texte secondaire / placeholders */
-    --accent-primary:  #d11d05;   /* violet / accent principal */
-    --accent-hover:    #ff6e6b;   /* accent au survol */
-    --shadow-card:     rgba(0,0,0,0.4);
-}
-
-/* --------------------------------------------------------------
-   Reset & typographie de base
-   -------------------------------------------------------------- */
-* { box-sizing:border-box; margin:0; padding:0; }
-html { font-size: 16px; }
-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-                 Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg-primary);
-    background-image: url("wallpaper.png");
-    background-size: cover;
-    background-attachment: fixed;
-    color: var(--color-text);
-    line-height: 1.5;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    padding: 1.5rem;
-}
-
-/* --------------------------------------------------------------
-   Titres
-   -------------------------------------------------------------- */
-h2 {
-    font-size: 2rem;
-    margin-bottom: 1rem;
-    text-align: center;
-    color: var(--accent-primary);
-}
-
-/* --------------------------------------------------------------
-   Formulaire de configuration (Base URL)
-   -------------------------------------------------------------- */
-form{ 
-    border: 2px solid var(--accent-primary);
-    border-radius: 6px;
-    background: var(--bg-input);
-    color: var(--color-text);
-    padding: 1rem;
-    max-width: 600px;
-}
-
-#base-url-form {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: center;
-    margin-bottom: 1rem;
-}
-#base-url-form label {
-    color: var(--color-muted);
-    font-size: 0.9rem;
-}
-#base-url-input {
-    flex: 1 1 260px;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--accent-primary);
-    border-radius: 4px;
-    background: var(--bg-input);
-    color: var(--color-text);
-    font-size: 0.95rem;
-}
-#base-url-input::placeholder {
-    color: var(--color-muted);
-}
-#base-url-form button {
-    padding: 0.5rem 1rem;
-    background: var(--accent-primary);
-    border: none;
-    border-radius: 4px;
-    color: #fff;
-    cursor: pointer;
-    font-weight: 600;
-    transition: background 0.2s ease;
-}
-#base-url-form button:hover {
-    background: var(--accent-hover);
-}
-
-/* --------------------------------------------------------------
-   Champ de recherche
-   -------------------------------------------------------------- */
-#search {
-    width: 100%;
-    max-width: 500px;
-    margin: 0 auto 1.5rem auto;
-    padding: 0.65rem 1rem;
-    font-size: 1rem;
-    border: 2px solid var(--accent-primary);
-    border-radius: 6px;
-    background: var(--bg-input);
-    color: var(--color-text);
-    outline: none;
-    transition: border-color 0.2s ease;
-}
-#search:focus {
-    border-color: var(--accent-hover);
-}
-
-/* --------------------------------------------------------------
-   Grille de résultats
-   -------------------------------------------------------------- */
-#results {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    list-style: none;
-    justify-content: center;
-    padding: 0;
-    margin: 0 auto;
-}
-#results li {
-    background: var(--bg-card);
-    border-radius: 8px;
-    overflow: hidden;
-    width: 160px;
-    cursor: pointer;
-    box-shadow: 0 4px 8px var(--shadow-card);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-#results li:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 16px var(--shadow-card);
-}
-.thumb {
-    width: 100%;
-    height: 225px;
-    object-fit: cover;
-    display: block;
-}
-.title {
-    padding: 0.5rem;
-    font-size: 0.9rem;
-    text-align: center;
-    color: var(--color-text);
-    min-height: 2.4em; /* garde les cartes alignées même si le titre est court */
-}
-
-/* --------------------------------------------------------------
-   Barre de progression (download)
-   -------------------------------------------------------------- */
-progress {
-    width: 100%;
-    max-width: 500px;
-    height: 12px;
-    margin: 1rem auto;
-    appearance: none;
-    border-radius: 6px;
-    overflow: hidden;
-    background: var(--bg-input);
-}
-progress::-webkit-progress-bar {
-    background: var(--bg-input);
-}
-progress::-webkit-progress-value {
-    background: var(--accent-primary);
-}
-progress::-moz-progress-bar {
-    background: var(--accent-primary);
-}
-
-/* --------------------------------------------------------------
-   Responsivité
-   -------------------------------------------------------------- */
-@media (max-width: 480px) {
-    #results li {
-        width: 45%;
-    }
-}
-@media (max-width: 350px) {
-    #results li {
-        width: 100%;
-    }
-}
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
-<h2>XalaDownloader - By Rajare</h2>
+<div class="main-container">
+    <aside id="sidebar">
+        <h3 class="sidebar-title">Dernières Sorties</h3>
+        <div id="last-releases-list"></div>
+    </aside>
 
-<!-- ==== Champ de recherche ==== -->
-<input id="search" placeholder="Rechercher un film…" autocomplete="off"/>
+    <main id="content">
+        <h2>XalaDownloader - By Rajare</h2>
+        <input id="search" placeholder="Rechercher un film…" autocomplete="off"/>
+        <div class="filter-container">
+            <button class="btn-filter" onclick="loadFranchise(30)">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/1/11/Amazon_Prime_Video_logo.svg" alt="Prime">
+            </button>
+            <button class="btn-filter" onclick="loadFranchise(28)">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg" alt="Netflix">
+            </button>
+            <button class="btn-filter" onclick="loadFranchise(16)">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/d/da/Marvel_Studios_2025.svg" alt="Marvel">
+            </button>
+            <button class="btn-filter" onclick="loadFranchise(25)">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/b/b4/DC_Vertigo_Logo.svg" alt="DC">
+            </button>
+            <button class="btn-filter" onclick="loadFranchise(31)">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/c/ce/Star_wars2.svg" alt="Star Wars">
+            </button>
+        </div>
+        <ul id="results"></ul>
+        <progress id="bar" value="0" max="1" hidden></progress>
+    </main>
+</div>
 
-<!-- ==== Résultats ==== -->
-<ul id="results"></ul>
-
-<!-- ==== Progression du téléchargement ==== -->
-<progress id="bar" value="0" max="1" hidden></progress>
-
-<script>
-/* --------------------------------------------------------------
-   Références DOM
-   -------------------------------------------------------------- */
-const search   = document.getElementById('search');
-const results  = document.getElementById('results');
-const bar      = document.getElementById('bar');
-
-/* --------------------------------------------------------------
-   Recherche - déclenchée dès que l'utilisateur tape ≥2 caractères
-   -------------------------------------------------------------- */
-search.oninput = async () => {
-  if (search.value.length < 2) {
-    results.innerHTML = '';
-    return;
-  }
-
-  try {
-    const res   = await fetch('/api/search?q=' + encodeURIComponent(search.value));
-    const items = await res.json();
-
-    results.innerHTML = '';
-    items.forEach(m => {
-      const li = document.createElement('li');
-
-      const img = document.createElement('img');
-      img.src = m.thumbUrl;
-      img.alt = m.title;
-      img.className = 'thumb';
-
-      const span = document.createElement('span');
-      span.textContent = m.title;
-      span.className = 'title';
-
-      li.appendChild(img);
-      li.appendChild(span);
-
-      li.onclick = () => {
-        download(`/api/download?detail=${m.id}&title=${encodeURIComponent(m.title)}`);
-      };
-
-      results.appendChild(li);
-    });
-  } catch (e) {
-    console.error('Erreur recherche :', e);
-    results.innerHTML = '<li style="color:#ff6b6b;">Erreur lors de la recherche.</li>';
-  }
-};
-
-/* --------------------------------------------------------------
-   Fonction de téléchargement (utilise un <a> invisible)
-   -------------------------------------------------------------- */
-function download(url) {
-  // Affiche la barre de progression pendant le fetch
-  bar.hidden = false;
-  bar.value   = 0;
-
-  fetch(url).then(res => {
-    const total = +res.headers.get('Content-Length');
-    let loaded = 0;
-    const reader = res.body.getReader();
-
-    function read() {
-      reader.read().then(({done, value}) => {
-        if (done) {
-          bar.hidden = true;
-          return;
-        }
-        loaded += value.length;
-        bar.value = total ? loaded / total : 0;
-        read();
-      });
-    }
-    read();
-  }).catch(err => {
-    console.error('download error:', err);
-    bar.hidden = true;
-  });
-
-  // Le <a> invisible force le navigateur à appliquer le header
-  // Content‑Disposition que le serveur a renvoyé.
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = '';          // laisse le serveur décider du nom
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
-
-</script>
+<!-- ==== Script JavaScript ==== -->
+<script src="script.js"></script>
 
 </body>
 </html>

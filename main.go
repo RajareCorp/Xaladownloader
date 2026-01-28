@@ -3,25 +3,20 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-// Tag du développeur
 const developerTag = `
      ██▀███   ▄▄▄      ▄▄▄██▀▀▀▄▄▄       ██▀███  ▓█████ 
     ▓██ ▒ ██▒▒████▄      ▒██  ▒████▄    ▓██ ▒ ██▒▓█   ▀ 
@@ -29,20 +24,27 @@ const developerTag = `
     ▒██▀▀█▄  ░██▄▄▄▄██▓██▄██▓ ░██▄▄▄▄██ ▒██▀▀█▄  ▒▓█  ▄ 
     ░██▓ ▒██▒ ▓█   ▓██▒▓███▒   ▓█   ▓██▒░██▓ ▒██▒░▒████▒
     ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░▒▓▒▒░   ▒▒   ▓▒█░░ ▒▓ ░▒▓░░░ ▒░ ░
-      ░▒ ░ ▒░  ▒   ▒▒ ░▒ ░▒░    ▒   ▒▒ ░  ░▒ ░ ▒░ ░ ░  ░
+      ░▒ ░ ▒░   ▒   ▒▒ ░▒ ░▒░    ▒   ▒▒ ░   ░▒ ░ ▒░ ░ ░  ░
       ░░   ░   ░   ▒   ░ ░ ░    ░   ▒     ░░   ░    ░   
        ░           ░  ░░   ░        ░  ░   ░        ░  ░
-	`
+    `
 
-// Media représente le résultat que le front‑end consomme.
 type Media struct {
 	Title    string `json:"title"`
 	ID       int    `json:"id"`
 	ThumbURL string `json:"thumbUrl"`
-	Kind     string `json:"kind"` // "movie" | "series"
+	Kind     string `json:"kind"`
+	Runtime  string `json:"runtime"`
+	Updated  string `json:"updatedAt"`
 }
 
-// Définition corrigée des structures pour correspondre au JSON réel
+type Episode struct {
+	Number int    `json:"episode"`
+	Name   string `json:"name"`
+}
+
+// --- Structures API ---
+
 type PurestreamResponse struct {
 	Data struct {
 		Items struct {
@@ -54,170 +56,51 @@ type PurestreamResponse struct {
 }
 
 type PurestreamMovie struct {
-	ID      int    `json:"id"`
-	Title   string `json:"title"`
-	Type    string `json:"type"`
-	Posters struct {
+	ID        int    `json:"id"`
+	Title     string `json:"title"`
+	Type      string `json:"type"` // "movie" ou "tv"
+	Runtime   string `json:"runtime"`
+	UpdatedAt string `json:"updatedAt"`
+	Posters   struct {
 		Large string `json:"large"`
 	} `json:"posters"`
 }
 
-var BaseURL string
-
-func InitApp() {
-	url, err := FetchBaseURL()
-	if err != nil {
-		log.Println("Impossible de détecter l'URL officielle, fallback :", err)
-		BaseURL = "https://api.purstream.to"
-		return
-	}
-
-	BaseURL = url
-	log.Println("XalaFlix URL détectée :", BaseURL)
+// Structure pour mapper le JSON brut de l'API /last-released-movies/
+type LastReleasesAPIResponse struct {
+	Data struct {
+		Items []struct {
+			ID        int    `json:"id"`
+			Title     string `json:"title"`
+			Type      string `json:"type"`
+			Runtime   string `json:"runtime"`
+			UpdatedAt string `json:"updatedAt"`
+			Posters   struct {
+				Large string `json:"large"`
+			} `json:"posters"`
+		} `json:"items"`
+	} `json:"data"`
 }
 
-func openBrowser(url string) error {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	default:
-		return fmt.Errorf("unsupported platform")
-	}
-
-	return cmd.Start()
-}
-
-func FetchBaseURL() (string, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	req, err := http.NewRequest("GET", "https://xalaflix.fr", nil)
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	// PRIORITÉ : canonical
-	if href, exists := doc.Find(`link[rel="canonical"]`).Attr("href"); exists {
-		return strings.TrimRight(href, "/"), nil
-	}
-
-	// CTA principal
-	if href, exists := doc.Find(".cta-btn").Attr("href"); exists {
-		return strings.TrimRight(href, "/"), nil
-	}
-
-	// Carte principale
-	if href, exists := doc.Find(".card a.button-primary").First().Attr("href"); exists {
-		return strings.TrimRight(href, "/"), nil
-	}
-
-	return "", errors.New("base URL not found")
-}
-
-// fetchMedia parses the Xalaflix search page and returns a slice of Media.
-func fetchMedia(ctx context.Context, query string) ([]Media, error) {
-	if query == "" {
-		return nil, fmt.Errorf("empty query")
-	}
-
-	escaped := url.QueryEscape(query)
-	// BaseURL doit être défini quelque part (ex: https://purstream.to)
-	remote := fmt.Sprintf("%s/api/v1/search-bar/search/%s", BaseURL, escaped)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, remote, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	req.Header.Set("Accept", "application/json") // On précise qu'on veut du JSON
-
-	client := &http.Client{Timeout: 12 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-
-	// On décode directement le flux JSON
-	var apiData PurestreamResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiData); err != nil {
-		return nil, fmt.Errorf("failed to decode JSON: %v", err)
-	}
-
-	results := []Media{}
-
-	// On boucle uniquement sur la section 'movies' du JSON
-	for _, m := range apiData.Data.Items.Movies.Items {
-		if m.Type == "movie" {
-			results = append(results, Media{
-				Title:    m.Title,
-				ID:       m.ID,
-				ThumbURL: m.Posters.Large,
-				Kind:     "movie",
-			})
-		}
-	}
-
-	return results, nil
-}
-
-// sanitizeFileName enlève les caractères interdits sur Windows/macOS/Linux
-func sanitizeFileName(name string) string {
-	// Remplace les espaces multiples par un seul espace
-	name = strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(name, " "))
-
-	// Supprime les caractères réservés : \ / : * ? " < > |
-	illegal := regexp.MustCompile(`[\\/:*?"<>|]`)
-	name = illegal.ReplaceAllString(name, "")
-
-	// Limite la longueur (optionnel, 200 caractères max)
-	if len(name) > 200 {
-		name = name[:200]
-	}
-	return name
-}
-
-func searchHandler(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	media, err := fetchMedia(ctx, q)
-	if err != nil {
-		http.Error(w, "Erreur lors de la recherche : "+err.Error(),
-			http.StatusBadGateway)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(media); err != nil {
-		http.Error(w, "Erreur d'encodage JSON", http.StatusInternalServerError)
-	}
+type FranchiseAPIResponse struct {
+	Data struct {
+		Items struct {
+			Franchise struct {
+				Movies struct {
+					Items []struct {
+						ID        int    `json:"id"`
+						Title     string `json:"title"`
+						Type      string `json:"type"`
+						Runtime   string `json:"runtime"`
+						UpdatedAt string `json:"updatedAt"`
+						Posters   struct {
+							Large string `json:"large"`
+						} `json:"posters"`
+					} `json:"items"`
+				} `json:"movies"`
+			} `json:"franchise"`
+		} `json:"items"`
+	} `json:"data"`
 }
 
 type SheetResponse struct {
@@ -228,155 +111,288 @@ type SheetResponse struct {
 				URL  string `json:"url"`
 				Name string `json:"name"`
 			} `json:"urls"`
+			// Pour les séries, on compte souvent les saisons via un champ ou l'analyse des URLs
+			SeasonCount int `json:"season_count"`
 		} `json:"items"`
 	} `json:"data"`
 }
 
-func getVideoURL(ctx context.Context, id int) (string, error) {
-	// Construction de l'URL de la "sheet"
-	remote := fmt.Sprintf("%s/api/v1/media/%d/sheet", BaseURL, id)
+type SeasonDetailResponse struct {
+	Data struct {
+		Items struct {
+			Episodes []Episode `json:"episodes"`
+		} `json:"items"`
+	} `json:"data"`
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, remote, nil)
+var BaseURL string
+
+// --- Logique App ---
+
+func InitApp() {
+	url, err := FetchBaseURL()
+	if err != nil {
+		BaseURL = "https://api.purstream.to"
+		return
+	}
+	BaseURL = url
+	log.Println("URL détectée :", BaseURL)
+}
+
+func FetchBaseURL() (string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://xalaflix.fr")
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
+	doc, _ := goquery.NewDocumentFromReader(resp.Body)
+	if href, exists := doc.Find(`link[rel="canonical"]`).Attr("href"); exists {
+		return strings.TrimRight(href, "/"), nil
+	}
+	return "https://api.purstream.to", nil
+}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	req.Header.Set("Accept", "application/json")
+func fetchMedia(ctx context.Context, query string) ([]Media, error) {
+	remote := fmt.Sprintf("%s/api/v1/search-bar/search/%s", BaseURL, url.QueryEscape(query))
+	req, _ := http.NewRequestWithContext(ctx, "GET", remote, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
 
 	client := &http.Client{Timeout: 12 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+	var apiData PurestreamResponse
+	json.NewDecoder(resp.Body).Decode(&apiData)
+
+	results := []Media{}
+	for _, m := range apiData.Data.Items.Movies.Items {
+		results = append(results, Media{
+			Title: m.Title, ID: m.ID, ThumbURL: m.Posters.Large, Kind: m.Type, Runtime: m.Runtime, Updated: m.UpdatedAt,
+		})
+	}
+	return results, nil
+}
+
+func getEpisodes(ctx context.Context, mediaID int, seasonNum int) ([]Episode, error) {
+	remote := fmt.Sprintf("%s/api/v1/media/%d/season/%d", BaseURL, mediaID, seasonNum)
+	req, _ := http.NewRequestWithContext(ctx, "GET", remote, nil)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var data SeasonDetailResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	return data.Data.Items.Episodes, nil
+}
+
+// --- Handlers ---
+
+func lastReleasesHandler(w http.ResponseWriter, r *http.Request) {
+	// Appel à l'API externe
+	remote := fmt.Sprintf("%s/api/v1/last-released-movies/13", BaseURL)
+	req, _ := http.NewRequestWithContext(r.Context(), "GET", remote, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Erreur API externe", 502)
+		return
+	}
+	defer resp.Body.Close()
+
+	var apiData LastReleasesAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiData); err != nil {
+		http.Error(w, "Erreur décodage JSON", 500)
+		return
 	}
 
-	// Décodage du JSON
-	var sheet SheetResponse
-	if err := json.NewDecoder(resp.Body).Decode(&sheet); err != nil {
-		return "", fmt.Errorf("failed to decode sheet JSON: %v", err)
+	// --- CONVERSION VERS TON TYPE MEDIA ---
+	finalResults := []Media{}
+	for _, item := range apiData.Data.Items {
+		finalResults = append(finalResults, Media{
+			Title:    item.Title,
+			ID:       item.ID,
+			ThumbURL: item.Posters.Large,
+			Kind:     item.Type, // "movie" ou "tv"
+			Runtime:  item.Runtime,
+			Updated:  item.UpdatedAt,
+		})
 	}
 
-	// On vérifie si on a au moins une URL disponible dans le tableau 'urls'
-	if len(sheet.Data.Items.Urls) > 0 {
-		// On retourne la première URL (souvent la VF)
-		return sheet.Data.Items.Urls[0].URL, nil
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(finalResults)
+}
+
+func franchiseHandler(w http.ResponseWriter, r *http.Request) {
+	franchiseID := r.URL.Query().Get("id")
+	if franchiseID == "" {
+		franchiseID = "30" // Par défaut Prime Video
 	}
 
-	return "", fmt.Errorf("no video URL found for media %d", id)
+	remote := fmt.Sprintf("%s/api/v1/franchise/%s", BaseURL, franchiseID)
+	req, _ := http.NewRequestWithContext(r.Context(), "GET", remote, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Erreur API Franchise", 502)
+		return
+	}
+	defer resp.Body.Close()
+
+	var apiData FranchiseAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiData); err != nil {
+		http.Error(w, "Erreur décodage Franchise", 500)
+		return
+	}
+
+	// Conversion vers ton slice de Media standard
+	finalResults := []Media{}
+	for _, item := range apiData.Data.Items.Franchise.Movies.Items {
+		finalResults = append(finalResults, Media{
+			Title:    item.Title,
+			ID:       item.ID,
+			ThumbURL: item.Posters.Large,
+			Kind:     item.Type,
+			Runtime:  item.Runtime,
+			Updated:  item.UpdatedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(finalResults)
+}
+
+func searchHandler(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	res, _ := fetchMedia(r.Context(), q)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+func episodesHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	season := r.URL.Query().Get("num")
+
+	// On force le formatage "01" pour l'API si nécessaire
+	remote := fmt.Sprintf("%s/api/v1/media/%s/season/%s", BaseURL, id, season)
+
+	req, _ := http.NewRequest("GET", remote, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
 }
 
 func downloadHandler(w http.ResponseWriter, r *http.Request) {
-	// ----------- Récupération des paramètres ----------
-	detail := r.URL.Query().Get("detail")
-	if detail == "" {
-		http.Error(w, "missing ?detail= parameter", http.StatusBadRequest)
+	// 1. On récupère les paramètres
+	videoURL := r.URL.Query().Get("url")
+	detailID := r.URL.Query().Get("detail")
+	infoOnly := r.URL.Query().Get("infoOnly") == "true"
+
+	// 2. Si on a un ID (detail), on va voir la "sheet"
+	if detailID != "" {
+		remote := fmt.Sprintf("%s/api/v1/media/%s/sheet", BaseURL, detailID)
+		resp, err := http.Get(remote)
+		if err != nil {
+			http.Error(w, "Erreur API Sheet", 502)
+			return
+		}
+		defer resp.Body.Close()
+
+		// CAS A : Le JS veut juste les infos (Template URL + Saisons)
+		if infoOnly {
+			w.Header().Set("Content-Type", "application/json")
+			io.Copy(w, resp.Body)
+			return
+		}
+
+		// CAS B : C'est un film, on extrait l'URL pour le téléchargement
+		var sheet SheetResponse
+		if err := json.NewDecoder(resp.Body).Decode(&sheet); err == nil {
+			if len(sheet.Data.Items.Urls) > 0 {
+				videoURL = sheet.Data.Items.Urls[0].URL
+			}
+		}
+	}
+
+	// 3. Si on arrive ici avec une URL (soit film, soit épisode généré par le JS)
+	if videoURL == "" {
+		http.Error(w, "Vidéo introuvable", 404)
 		return
 	}
 
-	rawTitle := r.URL.Query().Get("title")
-	if rawTitle == "" {
-		rawTitle = "video"
-	}
-	filename := sanitizeFileName(rawTitle) + ".mp4"
+	// --- Logique de téléchargement identique ---
+	title := r.URL.Query().Get("title")
+	filename := sanitizeFileName(title) + ".mp4"
 
-	// ----------- Obtenir l'URL du fichier vidéo ----------
-	ctx := r.Context()
-
-	detailID, err := strconv.Atoi(detail)
-	if err != nil {
-		http.Error(w, "invalid detail parameter: "+err.Error(),
-			http.StatusBadRequest)
-		return
-	}
-
-	videoURL, err := getVideoURL(ctx, detailID)
-	if err != nil {
-		http.Error(w, "cannot obtain video URL: "+err.Error(),
-			http.StatusBadGateway)
-		return
-	}
-
-	// ----------- Préparer la requête vers Xalaflix ----------
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
-	if err != nil {
-		http.Error(w, "failed to build request: "+err.Error(),
-			http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
+	req, _ := http.NewRequest("GET", videoURL, nil)
 	req.Header.Set("Referer", BaseURL)
-	req.Header.Set("Range", "bytes=0-")
-	req.Header.Set("Accept-Encoding", "identity")
+	req.Header.Set("User-Agent", "Mozilla/5.0")
 
-	client := &http.Client{Timeout: 0} // pas de timeout pour le streaming long
-	resp, err := client.Do(req)
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		http.Error(w, "error fetching video: "+err.Error(),
-			http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
+	defer res.Body.Close()
 
-	// ----------- Propagation des headers du fichier source ----------
-	// (Content‑Type, Content‑Length, etc.)
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	} else {
-		w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Header().Set("Content-Type", "video/mp4")
+	io.Copy(w, res.Body)
+}
+
+func sanitizeFileName(name string) string {
+	return regexp.MustCompile(`[\\/:*?"<>|]`).ReplaceAllString(name, "")
+}
+
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
 	}
-	if cl := resp.Header.Get("Content-Length"); cl != "" {
-		w.Header().Set("Content-Length", cl)
-	}
-
-	// ----------- **FORCER LE TÉLÉCHARGEMENT** ----------
-	// Cette ligne doit être **avant** tout WriteHeader.
-	disposition := fmt.Sprintf(`attachment; filename="%s"`, filename)
-	w.Header().Set("Content-Disposition", disposition)
-
-	// Aucun WriteHeader explicite n'est nécessaire : le premier Write (io.Copy)
-	// déclenchera automatiquement un 200 OK avec les headers déjà posés.
-
-	// ----------- Copier le flux vers le client ----------
-	_, copyErr := io.Copy(w, resp.Body)
-	if copyErr != nil && !errors.Is(copyErr, net.ErrClosed) {
-		fmt.Fprintf(os.Stderr, "stream copy error: %v\n", copyErr)
-	}
+	return cmd.Start()
 }
 
 func main() {
 	fmt.Println(developerTag)
-
 	InitApp()
 
-	// Servir les fichiers UI
 	http.Handle("/", http.FileServer(http.Dir("./ui")))
-
-	// API recherche (déjà existante)
 	http.HandleFunc("/api/search", searchHandler)
-
-	// Nouvelle API téléchargement qui prend le paramètre `detail`
+	http.HandleFunc("/api/episodes", episodesHandler)
 	http.HandleFunc("/api/download", downloadHandler)
+	http.HandleFunc("/api/last-releases", lastReleasesHandler)
+	http.HandleFunc("/api/franchise", franchiseHandler)
 
 	go func() {
-		fmt.Println("XalaDownloader démarre sur http://127.0.0.1:8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
-			log.Fatal(err)
-		}
+		fmt.Println("Démarrage sur http://127.0.0.1:8080")
+		http.ListenAndServe(":8080", nil)
 	}()
 
-	time.Sleep(300 * time.Millisecond)
-
-	// Ouvre le navigateur
-	err := openBrowser("http://127.0.0.1:8080")
-	if err != nil {
-		log.Println("Impossible d'ouvrir le navigateur :", err)
-	}
-
-	// Empêche main de se terminer
+	time.Sleep(500 * time.Millisecond)
+	openBrowser("http://127.0.0.1:8080")
 	select {}
 }

@@ -1,0 +1,431 @@
+/* --------------------------------------------------------------
+   Variables de couleur - facile à ajuster ou à passer en dark/light
+   -------------------------------------------------------------- */
+:root {
+    --bg-primary:      #1e1e2f;   /* arrière‑plan principal */
+    --bg-card:         #262637;   /* fond des cartes (vignettes) */
+    --bg-input:        #2a2a3b;   /* champs de saisie */
+    --color-text:      #e0e0e8;   /* texte principal */
+    --color-muted:     #a0a0b0;   /* texte secondaire / placeholders */
+    --accent-primary:  #d11d05;   /* violet / accent principal */
+    --accent-hover:    #ff6e6b;   /* accent au survol */
+    --shadow-card:     rgba(0,0,0,0.4);
+}
+
+/* --------------------------------------------------------------
+   Reset & typographie de base
+   -------------------------------------------------------------- */
+* { box-sizing:border-box; margin:0; padding:0; }
+html { font-size: 16px; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg-primary);
+    background-image: url("wallpaper.png");
+    background-size: cover;
+    background-attachment: fixed;
+    color: var(--color-text);
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+}
+
+/* --------------------------------------------------------------
+   Titres
+   -------------------------------------------------------------- */
+h2 {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    text-align: center;
+    color: var(--accent-primary);
+}
+
+/* --------------------------------------------------------------
+   Formulaire de configuration (Base URL)
+   -------------------------------------------------------------- */
+form{ 
+    border: 2px solid var(--accent-primary);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--color-text);
+    padding: 1rem;
+    max-width: 600px;
+}
+
+#base-url-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+#base-url-form label {
+    color: var(--color-muted);
+    font-size: 0.9rem;
+}
+#base-url-input {
+    flex: 1 1 260px;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--accent-primary);
+    border-radius: 4px;
+    background: var(--bg-input);
+    color: var(--color-text);
+    font-size: 0.95rem;
+}
+#base-url-input::placeholder {
+    color: var(--color-muted);
+}
+#base-url-form button {
+    padding: 0.5rem 1rem;
+    background: var(--accent-primary);
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s ease;
+}
+#base-url-form button:hover {
+    background: var(--accent-hover);
+}
+
+/* --------------------------------------------------------------
+   Champ de recherche
+   -------------------------------------------------------------- */
+#search {
+    width: 100%;
+    max-width: 500px;
+    margin: 0 auto 1.5rem auto;
+    padding: 0.65rem 1rem;
+    font-size: 1rem;
+    border: 2px solid var(--accent-primary);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--color-text);
+    outline: none;
+    transition: border-color 0.2s ease;
+    /* centre la barre */
+    display: block;
+
+}
+#search:focus {
+    border-color: var(--accent-hover);
+}
+
+/* --------------------------------------------------------------
+   Grille de résultats
+   -------------------------------------------------------------- */
+#results {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    list-style: none;
+    justify-content: center;
+    padding: 0;
+    margin: 0 auto;
+}
+#results li {
+    background: var(--bg-card);
+    border-radius: 8px;
+    overflow: hidden;
+    width: 160px;
+    cursor: pointer;
+    box-shadow: 0 4px 8px var(--shadow-card);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+#results li:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 16px var(--shadow-card);
+}
+.thumb {
+    width: 100%;
+    height: 225px;
+    object-fit: cover;
+    display: block;
+}
+.title {
+    padding: 0.5rem;
+    font-size: 0.9rem;
+    text-align: center;
+    color: var(--color-text);
+    min-height: 2.4em; /* garde les cartes alignées même si le titre est court */
+}
+
+/* --------------------------------------------------------------
+   Barre de progression (download)
+   -------------------------------------------------------------- */
+progress {
+    width: 100%;
+    max-width: 500px;
+    height: 12px;
+    margin: 1rem auto;
+    appearance: none;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-input);
+}
+progress::-webkit-progress-bar {
+    background: var(--bg-input);
+}
+progress::-webkit-progress-value {
+    background: var(--accent-primary);
+}
+progress::-moz-progress-bar {
+    background: var(--accent-primary);
+}
+
+/* Style de base pour les séries (effet visuel de profondeur) */
+.is-series {
+    position: relative;
+    z-index: 1;
+}
+
+/* Les couches derrière la carte principale */
+.is-series::before, .is-series::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--accent-primary);
+    border-radius: 8px;
+    z-index: -1;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    opacity: 0; /* Invisibles par défaut */
+}
+
+/* Animation au survol : on décale les couches */
+.is-series:hover::before {
+    opacity: 0.6;
+    transform: translate(6px, -6px);
+}
+
+.is-series:hover::after {
+    opacity: 0.3;
+    transform: translate(12px, -12px);
+}
+
+/* Petit badge "Série" en haut à droite */
+.badge-series {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: var(--accent-primary);
+    color: white;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+    z-index: 2;
+}
+
+/* Petit badge "Film" en haut à droite */
+.badge-film {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: var(--accent-primary);
+    color: white;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+    z-index: 2;
+}
+
+/* Container spécifique pour les saisons pour éviter de casser la grille des films */
+.season-item {
+    width: 80px !important;
+    height: 60px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-card);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 1.2rem;
+    color: var(--color-text);
+    transition: all 0.2s ease-in-out;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+}
+
+.season-item:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-input);
+    transform: scale(1.1);
+    color: var(--accent-primary);
+    box-shadow: 0 0 15px rgba(209, 29, 5, 0.4); /* halo lumineux rouge */
+}
+
+.season-item .season-label {
+    padding: 0;
+    margin: 0;
+}
+
+/* Titre de la série au dessus des saisons */
+.season-header {
+    width: 100%;
+    text-align: center;
+    margin: 1rem 0;
+    color: var(--accent-primary);
+    font-size: 1.5rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+/* Container pour les infos au survol */
+.media-info-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.85); /* Fond sombre transparent */
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    padding: 8px;
+    transform: translateY(100%); /* Caché sous la carte */
+    transition: transform 0.3s ease;
+    text-align: center;
+    border-top: 1px solid var(--accent-primary);
+    z-index: 3;
+}
+
+/* On affiche l'overlay au survol du li */
+#results li:hover .media-info-overlay {
+    transform: translateY(0);
+}
+
+/* S'assurer que le li gère bien le débordement pour cacher l'overlay */
+#results li {
+    position: relative; /* Important pour le positionnement de l'overlay */
+    overflow: hidden;
+}
+
+/* Layout Principal */
+.main-container {
+    display: flex;
+    gap: 20px;
+    /* max-width: 1400px; */
+    margin: 0 auto;
+    width: 100%;
+}
+
+#content { flex: 1; }
+
+#sidebar {
+    width: 280px;
+    background: var(--bg-card);
+    border-radius: 8px;
+    padding: 1rem;
+    height: fit-content;
+    position: sticky;
+    top: 1.5rem;
+    border: 1px solid var(--bg-input);
+}
+
+.sidebar-title {
+    color: var(--accent-primary);
+    text-align: center;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+}
+
+/* Style compact pour la sidebar */
+.side-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    margin-bottom: 8px;
+    background: var(--bg-input);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.side-item:hover { background: var(--bg-primary); transform: translateX(5px); }
+.side-item img { width: 45px; height: 65px; object-fit: cover; border-radius: 4px; }
+.side-item .info { display: flex; flex-direction: column; overflow: hidden; }
+.side-item .info span { 
+    white-space: nowrap; 
+    overflow: hidden; 
+    text-overflow: ellipsis; 
+    font-size: 0.85rem; 
+}
+.side-item .date { color: var(--color-muted); font-size: 0.7rem; }
+
+/* Container aligné sur la barre de recherche */
+.filter-container {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    max-width: 500px; /* Même largeur que ton #search */
+    margin: -0.5rem auto 1.5rem auto; /* Collé un peu plus à l'input */
+    flex-wrap: wrap;
+}
+
+.btn-filter {
+    flex: 1;
+    min-width: 100px;
+    max-width: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-input);
+    border-radius: 6px;
+    color: var(--color-text);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+/* Style des petits logos dans les boutons */
+.btn-filter img {
+    height: 14px;
+    filter: brightness(0) invert(1); /* Rend les logos blancs pour le mode sombre */
+}
+
+.btn-filter:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-input);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(209, 29, 5, 0.2);
+}
+
+.btn-filter:active {
+    transform: translateY(0);
+}
+
+/* Animation de chargement pour les boutons (optionnel) */
+.btn-filter.loading {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .main-container { flex-direction: column; }
+    #sidebar { width: 100%; position: relative; top: 0; }
+}
+
+/* --------------------------------------------------------------
+   Responsivité
+   -------------------------------------------------------------- */
+@media (max-width: 480px) {
+    #results li {
+        width: 45%;
+    }
+}
+@media (max-width: 350px) {
+    #results li {
+        width: 100%;
+    }
+}
