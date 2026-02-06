@@ -165,6 +165,7 @@ progress {
     border-radius: 6px;
     overflow: hidden;
     background: var(--bg-input);
+    display: block;
 }
 progress::-webkit-progress-bar {
     background: var(--bg-input);

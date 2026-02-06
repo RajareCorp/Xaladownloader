@@ -56,7 +56,9 @@ async function loadLastReleases() {
         items.forEach(m => {
             const div = document.createElement('div');
             div.className = 'side-item';
-            const dateStr = m.updatedAt ? new Date(m.updatedAt).toLocaleDateString('fr-FR') : '';
+            
+            // Correction ici : m.updated au lieu de m.updatedAt
+            const dateStr = m.updated ? new Date(m.updated).toLocaleDateString('fr-FR') : '';
 
             div.innerHTML = `
                 <img src="${m.thumbUrl}">
@@ -66,12 +68,7 @@ async function loadLastReleases() {
                 </div>
             `;
 
-            // On réutilise la même logique de clic que dans renderMediaList
-            div.onclick = () => {
-                // On simule un clic comme s'il était dans la liste principale
-                // ou on peut appeler une fonction partagée
-                handleMediaClick(m); 
-            };
+            div.onclick = () => handleMediaClick(m); 
             container.appendChild(div);
         });
     } catch (e) {
@@ -80,19 +77,23 @@ async function loadLastReleases() {
 }
 
 async function handleMediaClick(m) {
-    if (m.kind === "movie" || m.kind === "movie") { // Gestion des deux dénominations possibles
+    if (m.kind === "movie") { 
         download(`/api/download?detail=${m.id}&title=${encodeURIComponent(m.title)}`);
     } else {
-        results.scrollIntoView({ behavior: 'smooth' }); // Scroll vers les résultats pour voir les saisons
-        results.innerHTML = '<li style="width:100%; text-align:center;">Chargement...</li>';
+        results.scrollIntoView({ behavior: 'smooth' }); 
+        results.innerHTML = '<li style="width:100%; text-align:center;">Chargement de la série...</li>';
         try {
             const res = await fetch(`/api/download?detail=${m.id}&infoOnly=true`);
             const sheet = await res.json();
-            const urlTemplate = sheet.data.items.urls[0].url;
-            const seasonCount = sheet.data.items.seasons || 1;
-            showSeasonSelector(m, urlTemplate, seasonCount);
+            
+            // On s'assure que les données existent avant d'accéder aux index
+            if (sheet.data && sheet.data.items.urls.length > 0) {
+                const urlTemplate = sheet.data.items.urls[0].url;
+                const seasonCount = sheet.data.items.season_count || 1; // Correction nom du champ
+                showSeasonSelector(m, urlTemplate, seasonCount);
+            }
         } catch (e) {
-            results.innerHTML = '<li style="color:#ff6b6b; width:100%;">Erreur.</li>';
+            results.innerHTML = '<li style="color:#ff6b6b; width:100%;">Erreur de récupération des détails.</li>';
         }
     }
 }
@@ -102,24 +103,22 @@ function renderMediaList(items) {
     items.forEach(m => {
         const li = document.createElement('li');
         
-        // --- DIFFÉRENCIATION VISUELLE ---
         if (m.kind === "tv") {
             li.classList.add('is-series');
-            // Optionnel : ajouter un petit texte "Série"
             const badge = document.createElement('div');
             badge.className = 'badge-series';
             badge.textContent = 'SÉRIE';
             li.appendChild(badge);
-        }else{
+        } else {
             const badge = document.createElement('div');
             badge.className = 'badge-film';
+            // m.runtime contient déjà "125 min" grâce au backend Go
             badge.textContent = m.runtime;
             li.appendChild(badge); 
         }
 
-        // --- AJOUT DE L'OVERLAY UPDATED AT ---
-        // On suppose que m.updatedAt est une string date (ex: 2024-05-20)
-        const dateStr = m.updatedAt ? new Date(m.updatedAt).toLocaleDateString('fr-FR') : 'Inconnue';
+        // Correction m.updated au lieu de m.updatedAt
+        const dateStr = m.updated ? new Date(m.updated).toLocaleDateString('fr-FR') : 'Inconnue';
         
         const overlay = document.createElement('div');
         overlay.className = 'media-info-overlay';
@@ -131,7 +130,7 @@ function renderMediaList(items) {
             <span class="title">${m.title}</span>
         `;
 
-        li.onclick = li.onclick = () => handleMediaClick(m); // Utilise la fonction partagée !
+        li.onclick = () => handleMediaClick(m); 
         results.appendChild(li);
     });
 }

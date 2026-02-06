@@ -45,6 +45,15 @@ type Episode struct {
 
 // --- Structures API ---
 
+type PurestreamMovie struct {
+	ID              int    `json:"id"`
+	Title           string `json:"title"`
+	Type            string `json:"type"`              // Movie ou TV
+	Runtime         int    `json:"runtime"`           // Changé : int au lieu de string
+	UpdatedAt       string `json:"release_date"`      // Changé : mapping sur release_date
+	LargePosterPath string `json:"large_poster_path"` // Nouveau : remplace Posters.Large
+}
+
 type PurestreamResponse struct {
 	Data struct {
 		Items struct {
@@ -53,17 +62,6 @@ type PurestreamResponse struct {
 			} `json:"movies"`
 		} `json:"items"`
 	} `json:"data"`
-}
-
-type PurestreamMovie struct {
-	ID        int    `json:"id"`
-	Title     string `json:"title"`
-	Type      string `json:"type"` // "movie" ou "tv"
-	Runtime   string `json:"runtime"`
-	UpdatedAt string `json:"updatedAt"`
-	Posters   struct {
-		Large string `json:"large"`
-	} `json:"posters"`
 }
 
 // Structure pour mapper le JSON brut de l'API /last-released-movies/
@@ -88,14 +86,12 @@ type FranchiseAPIResponse struct {
 			Franchise struct {
 				Movies struct {
 					Items []struct {
-						ID        int    `json:"id"`
-						Title     string `json:"title"`
-						Type      string `json:"type"`
-						Runtime   string `json:"runtime"`
-						UpdatedAt string `json:"updatedAt"`
-						Posters   struct {
-							Large string `json:"large"`
-						} `json:"posters"`
+						ID              int    `json:"id"`
+						Title           string `json:"title"`
+						Type            string `json:"type"`
+						Runtime         int    `json:"runtime"`           // Changé en int
+						LargePosterPath string `json:"large_poster_path"` // Nouveau nom
+						UpdatedAt       string `json:"release_date"`      // On utilise release_date comme fallback
 					} `json:"items"`
 				} `json:"movies"`
 			} `json:"franchise"`
@@ -141,16 +137,40 @@ func InitApp() {
 
 func FetchBaseURL() (string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get("https://xalaflix.fr")
+
+	resp, err := client.Get("https://purstream.wiki")
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	doc, _ := goquery.NewDocumentFromReader(resp.Body)
-	if href, exists := doc.Find(`link[rel="canonical"]`).Attr("href"); exists {
-		return strings.TrimRight(href, "/"), nil
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", err
 	}
-	return "https://api.purstream.to", nil
+
+	// 1. Extraction de l'URL brute depuis la classe url-display
+	rawURL, exists := doc.Find("a.url-display").First().Attr("href")
+	if !exists || rawURL == "" {
+		return "https://api.purstream.to", fmt.Errorf("element .url-display introuvable")
+	}
+
+	// 2. Parsing de l'URL pour manipuler le Host
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "", fmt.Errorf("URL invalide : %v", err)
+	}
+
+	// 3. Transformation du Host : purstream.me -> api.purstream.me
+	// On nettoie d'abord d'éventuels préfixes existants (au cas où)
+	host := strings.TrimPrefix(u.Host, "www.")
+	host = strings.TrimPrefix(host, "api.") // Sécurité si l'URL est déjà api.
+
+	u.Host = "api." + host
+	u.Path = "" // On s'assure que le chemin est vide pour avoir juste la base
+	u.Scheme = "https"
+
+	return strings.TrimRight(u.String(), "/"), nil
 }
 
 func fetchMedia(ctx context.Context, query string) ([]Media, error) {
@@ -166,12 +186,20 @@ func fetchMedia(ctx context.Context, query string) ([]Media, error) {
 	defer resp.Body.Close()
 
 	var apiData PurestreamResponse
-	json.NewDecoder(resp.Body).Decode(&apiData)
+	if err := json.NewDecoder(resp.Body).Decode(&apiData); err != nil {
+		log.Printf("Erreur décodage Search: %v", err)
+		return nil, err
+	}
 
 	results := []Media{}
 	for _, m := range apiData.Data.Items.Movies.Items {
 		results = append(results, Media{
-			Title: m.Title, ID: m.ID, ThumbURL: m.Posters.Large, Kind: m.Type, Runtime: m.Runtime, Updated: m.UpdatedAt,
+			Title:    m.Title,
+			ID:       m.ID,
+			ThumbURL: m.LargePosterPath, // On utilise le nouveau champ direct
+			Kind:     m.Type,
+			Runtime:  fmt.Sprintf("%d min", m.Runtime), // Conversion int -> string
+			Updated:  m.UpdatedAt,
 		})
 	}
 	return results, nil
@@ -197,7 +225,6 @@ func getEpisodes(ctx context.Context, mediaID int, seasonNum int) ([]Episode, er
 // --- Handlers ---
 
 func lastReleasesHandler(w http.ResponseWriter, r *http.Request) {
-	// Appel à l'API externe
 	remote := fmt.Sprintf("%s/api/v1/last-released-movies/13", BaseURL)
 	req, _ := http.NewRequestWithContext(r.Context(), "GET", remote, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0")
@@ -210,21 +237,27 @@ func lastReleasesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	var apiData LastReleasesAPIResponse
+	// L'API renvoie désormais un tableau d'items directement dans Data
+	var apiData struct {
+		Data struct {
+			Items []PurestreamMovie `json:"items"`
+		} `json:"data"`
+	}
+
 	if err := json.NewDecoder(resp.Body).Decode(&apiData); err != nil {
+		log.Printf("Erreur décodage LastReleases: %v", err)
 		http.Error(w, "Erreur décodage JSON", 500)
 		return
 	}
 
-	// --- CONVERSION VERS TON TYPE MEDIA ---
 	finalResults := []Media{}
 	for _, item := range apiData.Data.Items {
 		finalResults = append(finalResults, Media{
 			Title:    item.Title,
 			ID:       item.ID,
-			ThumbURL: item.Posters.Large,
-			Kind:     item.Type, // "movie" ou "tv"
-			Runtime:  item.Runtime,
+			ThumbURL: item.LargePosterPath, // Correction ici
+			Kind:     item.Type,
+			Runtime:  fmt.Sprintf("%d min", item.Runtime), // Conversion int -> string
 			Updated:  item.UpdatedAt,
 		})
 	}
@@ -253,20 +286,21 @@ func franchiseHandler(w http.ResponseWriter, r *http.Request) {
 
 	var apiData FranchiseAPIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiData); err != nil {
+		log.Printf("Erreur décodage précise : %v", err)
 		http.Error(w, "Erreur décodage Franchise", 500)
 		return
 	}
 
-	// Conversion vers ton slice de Media standard
 	finalResults := []Media{}
 	for _, item := range apiData.Data.Items.Franchise.Movies.Items {
 		finalResults = append(finalResults, Media{
 			Title:    item.Title,
 			ID:       item.ID,
-			ThumbURL: item.Posters.Large,
+			ThumbURL: item.LargePosterPath, // Utilise le nouveau champ
 			Kind:     item.Type,
-			Runtime:  item.Runtime,
-			Updated:  item.UpdatedAt,
+			// Conversion de l'int runtime en string pour rester compatible avec ton type Media
+			Runtime: fmt.Sprintf("%d min", item.Runtime),
+			Updated: item.UpdatedAt,
 		})
 	}
 
