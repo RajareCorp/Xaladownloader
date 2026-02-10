@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
@@ -30,6 +32,9 @@ const developerTag = `
        ░           ░  ░░   ░        ░  ░   ░        ░  ░
     `
 const CurrentVersion = "1.0.1"
+
+//go:embed ui
+var uiFiles embed.FS
 
 // URL vers un fichier JSON sur GitHub ou ton serveur
 const UpdateConfigURL = "https://raw.githubusercontent.com/RajareCorp/Xaladownloader/master/update.json"
@@ -177,39 +182,47 @@ func CheckForUpdates() {
 }
 
 func doUpdate(url string) error {
-	// 1. Obtenir le chemin de l'exécutable actuel
 	executablePath, _ := os.Executable()
-	oldPath := executablePath + ".old"
+	tempPath := executablePath + ".tmp"
 
-	// 2. Télécharger le nouveau binaire
+	// 1. Télécharger le nouveau binaire
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// 3. Renommer l'actuel pour libérer la place
-	os.Remove(oldPath) // Supprime une ancienne sauvegarde si elle existe
-	err = os.Rename(executablePath, oldPath)
+	// 2. Créer le fichier temporaire
+	newFile, err := os.Create(tempPath)
 	if err != nil {
 		return err
 	}
-
-	// 4. Créer le nouveau fichier à l'emplacement d'origine
-	newFile, err := os.Create(executablePath)
-	if err != nil {
-		return err
-	}
-	defer newFile.Close()
 
 	_, err = io.Copy(newFile, resp.Body)
+	newFile.Close()
 	if err != nil {
 		return err
 	}
 
-	// 5. Rendre le fichier exécutable (Linux/Mac)
-	os.Chmod(executablePath, 0755)
+	// 3. Lancer le script de remplacement "Ninja"
+	// Ce script attend 1 seconde (pour nous laisser le temps de quitter),
+	// supprime l'ancien, renomme le nouveau et relance.
+	args := []string{
+		"/c", "timeout", "1", ">", "nul", "&&",
+		"del", executablePath, "&&",
+		"move", tempPath, executablePath, "&&",
+		"start", "", executablePath,
+	}
 
+	cmd := exec.Command("cmd", args...)
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+
+	// 4. On quitte immédiatement pour libérer le fichier .exe
+	fmt.Println("Redémarrage pour application de la mise à jour...")
+	os.Exit(0)
 	return nil
 }
 
@@ -549,7 +562,26 @@ func main() {
 	CheckForUpdates()
 	InitApp()
 
-	http.Handle("/", http.FileServer(http.Dir("./ui")))
+	// On extrait le sous-dossier "ui"
+	strippedFS, err := fs.Sub(uiFiles, "ui")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// On crée le FileServer
+	fileServer := http.FileServer(http.FS(strippedFS))
+
+	// Handler pour servir les fichiers avec les bons types MIME
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// Fix pour le MIME type JavaScript/CSS si Go fait une erreur
+		if strings.HasSuffix(path, ".js") {
+			w.Header().Set("Content-Type", "application/javascript")
+		} else if strings.HasSuffix(path, ".css") {
+			w.Header().Set("Content-Type", "text/css")
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 	http.HandleFunc("/api/search", searchHandler)
 	http.HandleFunc("/api/episodes", episodesHandler)
 	http.HandleFunc("/api/download", downloadHandler)
