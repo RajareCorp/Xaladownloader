@@ -102,13 +102,24 @@ type FranchiseAPIResponse struct {
 type SheetResponse struct {
 	Data struct {
 		Items struct {
-			ID   int `json:"id"`
-			Urls []struct {
+			ID      int    `json:"id"`
+			Type    string `json:"type"`
+			Seasons int    `json:"seasons"`
+			Urls    []struct {
 				URL  string `json:"url"`
 				Name string `json:"name"`
 			} `json:"urls"`
-			// Pour les séries, on compte souvent les saisons via un champ ou l'analyse des URLs
-			SeasonCount int `json:"season_count"`
+		} `json:"items"`
+	} `json:"data"`
+}
+
+type StreamResponse struct {
+	Data struct {
+		Items struct {
+			Sources []struct {
+				StreamURL  string `json:"stream_url"`
+				SourceName string `json:"source_name"`
+			} `json:"sources"`
 		} `json:"items"`
 	} `json:"data"`
 }
@@ -337,52 +348,105 @@ func episodesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func downloadHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. On récupère les paramètres
-	videoURL := r.URL.Query().Get("url")
+	// Paramètres communs
 	detailID := r.URL.Query().Get("detail")
 	infoOnly := r.URL.Query().Get("infoOnly") == "true"
 
-	// 2. Si on a un ID (detail), on va voir la "sheet"
-	if detailID != "" {
+	// Paramètres spécifiques aux séries
+	season := r.URL.Query().Get("season")
+	episode := r.URL.Query().Get("episode")
+
+	if detailID == "" {
+		http.Error(w, "ID manquant", 400)
+		return
+	}
+
+	// --- CAS A : Récupération des infos (Sheet) ---
+	if infoOnly {
 		remote := fmt.Sprintf("%s/api/v1/media/%s/sheet", BaseURL, detailID)
 		resp, err := http.Get(remote)
 		if err != nil {
+			log.Printf("Erreur appel API Sheet: %v", err)
 			http.Error(w, "Erreur API Sheet", 502)
 			return
 		}
 		defer resp.Body.Close()
 
-		// CAS A : Le JS veut juste les infos (Template URL + Saisons)
-		if infoOnly {
-			w.Header().Set("Content-Type", "application/json")
-			io.Copy(w, resp.Body)
+		var sheet SheetResponse
+		// On lit tout le corps pour pouvoir le logger en cas d'erreur
+		body, _ := io.ReadAll(resp.Body)
+
+		if err := json.Unmarshal(body, &sheet); err != nil {
+			log.Printf("Erreur décodage JSON: %v | Body: %s", err, string(body))
+			http.Error(w, "Erreur décodage Sheet", 500)
 			return
 		}
 
-		// CAS B : C'est un film, on extrait l'URL pour le téléchargement
-		var sheet SheetResponse
-		if err := json.NewDecoder(resp.Body).Decode(&sheet); err == nil {
-			if len(sheet.Data.Items.Urls) > 0 {
-				videoURL = sheet.Data.Items.Urls[0].URL
-			}
-		}
-	}
+		w.Header().Set("Content-Type", "application/json")
 
-	// 3. Si on arrive ici avec une URL (soit film, soit épisode généré par le JS)
-	if videoURL == "" {
-		http.Error(w, "Vidéo introuvable", 404)
+		// Construction de la réponse pour le JS
+		// Note: on renvoie un tableau vide pour "urls" pour éviter l'erreur .length sur le JS
+		out := map[string]interface{}{
+			"data": map[string]interface{}{
+				"items": map[string]interface{}{
+					"id":           sheet.Data.Items.ID,
+					"season_count": sheet.Data.Items.Seasons,
+					"type":         sheet.Data.Items.Type,
+					"urls":         sheet.Data.Items.Urls,
+				},
+			},
+		}
+
+		// Si Seasons est à 0 mais que c'est une TV, on force à 1 pour l'affichage
+		if sheet.Data.Items.Type == "tv" && sheet.Data.Items.Seasons == 0 {
+			out["data"].(map[string]interface{})["items"].(map[string]interface{})["season_count"] = 1
+		}
+
+		json.NewEncoder(w).Encode(out)
 		return
 	}
 
-	// --- Logique de téléchargement identique ---
+	// --- CAS B : Téléchargement (Film ou Série) ---
+	var streamRemote string
+	if season != "" && episode != "" {
+		// C'est une série
+		streamRemote = fmt.Sprintf("%s/api/v1/stream/%s/episode?season=%s&episode=%s", BaseURL, detailID, season, episode)
+	} else {
+		// C'est un film
+		streamRemote = fmt.Sprintf("%s/api/v1/stream/%s", BaseURL, detailID)
+	}
+
+	sResp, err := http.Get(streamRemote)
+	if err != nil || sResp.StatusCode != 200 {
+		http.Error(w, "Erreur récupération lien stream", 502)
+		return
+	}
+	defer sResp.Body.Close()
+
+	var streamData StreamResponse
+	if err := json.NewDecoder(sResp.Body).Decode(&streamData); err != nil || len(streamData.Data.Items.Sources) == 0 {
+		http.Error(w, "Source introuvable", 404)
+		return
+	}
+
+	// Transformation de l'URL pour le téléchargement direct
+	rawURL := streamData.Data.Items.Sources[0].StreamURL
+	finalDownloadURL := strings.Replace(rawURL, "/stream?", "/?", 1)
+
+	// Préparation du nom de fichier
 	title := r.URL.Query().Get("title")
+	if season != "" && episode != "" {
+		title = fmt.Sprintf("%s S%sE%s", title, season, episode)
+	}
 	filename := sanitizeFileName(title) + ".mp4"
 
-	req, _ := http.NewRequest("GET", videoURL, nil)
+	// Proxy du téléchargement
+	req, _ := http.NewRequest("GET", finalDownloadURL, nil)
 	req.Header.Set("Referer", BaseURL)
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 
-	res, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 0}
+	res, err := client.Do(req)
 	if err != nil {
 		return
 	}

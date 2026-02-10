@@ -86,11 +86,10 @@ async function handleMediaClick(m) {
             const res = await fetch(`/api/download?detail=${m.id}&infoOnly=true`);
             const sheet = await res.json();
             
-            // On s'assure que les données existent avant d'accéder aux index
-            if (sheet.data && sheet.data.items.urls.length > 0) {
-                const urlTemplate = sheet.data.items.urls[0].url;
-                const seasonCount = sheet.data.items.season_count || 1; // Correction nom du champ
-                showSeasonSelector(m, urlTemplate, seasonCount);
+            if (sheet.data && sheet.data.items) {
+                // On récupère season_count que le backend Go a mappé proprement
+                const seasonCount = sheet.data.items.season_count || 1; 
+                showSeasonSelector(m, seasonCount); // Plus besoin de urlTemplate ici
             }
         } catch (e) {
             results.innerHTML = '<li style="color:#ff6b6b; width:100%;">Erreur de récupération des détails.</li>';
@@ -138,37 +137,32 @@ function renderMediaList(items) {
 /* --------------------------------------------------------------
     Sélecteur de Saisons et Épisodes
 -------------------------------------------------------------- */
-function showSeasonSelector(media, urlTemplate, seasonCount) {
-    results.innerHTML = ''; // Nettoie la grille
-    
-    // Titre de la série
+function showSeasonSelector(media, seasonCount) {
+    results.innerHTML = ''; 
     const header = document.createElement('h3');
     header.className = 'season-header';
     header.textContent = media.title;
     results.appendChild(header);
     
-    // Bouton retour (souvent oublié, mais crucial pour l'UX)
+    // Bouton retour
     const backBtn = document.createElement('li');
     backBtn.className = 'season-item';
-    backBtn.style.width = "100%"; // On l'étire pour le différencier
+    backBtn.style.width = "100%";
     backBtn.innerHTML = '⬅';
     backBtn.onclick = () => search.oninput();
     results.appendChild(backBtn);
 
     for (let i = 1; i <= seasonCount; i++) {
         const li = document.createElement('li');
-        li.className = 'season-item'; // On applique notre nouvelle classe
-        
-        li.innerHTML = `<span class="season-label">S${i}</span>`;
-        
-        li.onclick = () => loadEpisodes(media, i, urlTemplate);
+        li.className = 'season-item';
+        li.innerHTML = `<span class="season-label">Saison ${i}</span>`;
+        li.onclick = () => loadEpisodes(media, i);
         results.appendChild(li);
     }
 }
 
-async function loadEpisodes(media, seasonNum, urlTemplate) {
-    const sPad = pad(seasonNum);
-    results.innerHTML = `<li style="width:100%; text-align:center;">Saison ${sPad}...</li>`;
+async function loadEpisodes(media, seasonNum) {
+    results.innerHTML = `<li style="width:100%; text-align:center;">Chargement Saison ${seasonNum}...</li>`;
     
     try {
         const res = await fetch(`/api/episodes?id=${media.id}&num=${seasonNum}`);
@@ -180,20 +174,17 @@ async function loadEpisodes(media, seasonNum, urlTemplate) {
         episodes.forEach(ep => {
             const li = document.createElement('li');
             li.style.width = "100%";
-            const ePad = pad(ep.episode);
+            const ePad = pad(ep.episode); // Gardé uniquement pour l'affichage visuel
 
             li.innerHTML = `<span class="title">Épisode ${ePad} : ${ep.name}</span>`;
             
             li.onclick = () => {
-                // --- LA LOGIQUE DE REMPLACEMENT DYNAMIQUE ---
-                // On remplace les placeholders du template par les valeurs formatées (04, 13, etc.)
-                let finalUrl = urlTemplate
-                    .replace(/{season_number}/g, sPad)
-                    .replace(/{episode_number}/g, ePad);
+                const finalTitle = `${media.title} S${pad(seasonNum)}E${ePad}`;
                 
-                const finalTitle = `${media.title} S${sPad}E${ePad}`;
-                console.log(`Téléchargement de l'épisode : ${finalTitle} depuis l'URL : ${finalUrl}`);
-                download(`/api/download?url=${encodeURIComponent(finalUrl)}&title=${encodeURIComponent(finalTitle)}`);
+                // APPEL AU BACKEND : On passe detail (id), season et episode
+                const downloadUrl = `/api/download?detail=${media.id}&season=${seasonNum}&episode=${ep.episode}&title=${encodeURIComponent(finalTitle)}`;
+                
+                download(downloadUrl);
             };
             results.appendChild(li);
         });
