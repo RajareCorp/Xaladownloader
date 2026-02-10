@@ -31,7 +31,7 @@ const developerTag = `
       ░░   ░   ░   ▒   ░ ░ ░    ░   ▒     ░░   ░    ░   
        ░           ░  ░░   ░        ░  ░   ░        ░  ░
     `
-const CurrentVersion = "1.0.1"
+const CurrentVersion = "1.0.2"
 
 //go:embed ui
 var uiFiles embed.FS
@@ -175,54 +175,47 @@ func CheckForUpdates() {
 		if err != nil {
 			log.Printf("Erreur MAJ: %v", err)
 		} else {
-			fmt.Println("✅ Mise à jour terminée. Relancez l'application.")
+			fmt.Println("Mise à jour terminée. Relancez l'application.")
+			time.Sleep(2 * time.Second)
 			os.Exit(0)
 		}
 	}
 }
 
 func doUpdate(url string) error {
+	// 1. Obtenir le chemin de l'exécutable actuel
 	executablePath, _ := os.Executable()
-	tempPath := executablePath + ".tmp"
+	oldPath := executablePath + ".old"
 
-	// 1. Télécharger le nouveau binaire
+	// 2. Télécharger le nouveau binaire
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// 2. Créer le fichier temporaire
-	newFile, err := os.Create(tempPath)
+	// 3. Renommer l'actuel pour libérer la place
+	os.Remove(oldPath) // Supprime une ancienne sauvegarde si elle existe
+	err = os.Rename(executablePath, oldPath)
 	if err != nil {
 		return err
 	}
+
+	// 4. Créer le nouveau fichier à l'emplacement d'origine
+	newFile, err := os.Create(executablePath)
+	if err != nil {
+		return err
+	}
+	defer newFile.Close()
 
 	_, err = io.Copy(newFile, resp.Body)
-	newFile.Close()
 	if err != nil {
 		return err
 	}
 
-	// 3. Lancer le script de remplacement "Ninja"
-	// Ce script attend 1 seconde (pour nous laisser le temps de quitter),
-	// supprime l'ancien, renomme le nouveau et relance.
-	args := []string{
-		"/c", "timeout", "1", ">", "nul", "&&",
-		"del", executablePath, "&&",
-		"move", tempPath, executablePath, "&&",
-		"start", "", executablePath,
-	}
+	// 5. Rendre le fichier exécutable (Linux/Mac)
+	os.Chmod(executablePath, 0755)
 
-	cmd := exec.Command("cmd", args...)
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-
-	// 4. On quitte immédiatement pour libérer le fichier .exe
-	fmt.Println("Redémarrage pour application de la mise à jour...")
-	os.Exit(0)
 	return nil
 }
 
