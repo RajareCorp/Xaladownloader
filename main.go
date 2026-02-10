@@ -32,7 +32,7 @@ const developerTag = `
 const CurrentVersion = "1.0.1"
 
 // URL vers un fichier JSON sur GitHub ou ton serveur
-const UpdateConfigURL = "https://github.com/RajareCorp/Xaladownloader/update.json"
+const UpdateConfigURL = "https://raw.githubusercontent.com/RajareCorp/Xaladownloader/master/update.json"
 
 type Media struct {
 	Title    string `json:"title"`
