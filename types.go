@@ -70,16 +70,19 @@ type FranchiseAPIResponse struct {
 	} `json:"data"`
 }
 
+type SheetURL struct {
+	URL  string `json:"url"`
+	Name string `json:"name"`
+}
+
 type SheetResponse struct {
 	Data struct {
 		Items struct {
-			ID      int    `json:"id"`
-			Type    string `json:"type"`
-			Seasons int    `json:"seasons"`
-			Urls    []struct {
-				URL  string `json:"url"`
-				Name string `json:"name"`
-			} `json:"urls"`
+			ID      int        `json:"id"`
+			Type    string     `json:"type"`
+			Title   string     `json:"title"`
+			Urls    []SheetURL `json:"urls"`
+			Seasons int        `json:"seasons"`
 		} `json:"items"`
 	} `json:"data"`
 }

@@ -123,111 +123,128 @@ func episodesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func downloadHandler(w http.ResponseWriter, r *http.Request) {
-	// Paramètres communs
 	detailID := r.URL.Query().Get("detail")
 	infoOnly := r.URL.Query().Get("infoOnly") == "true"
-
-	// Paramètres spécifiques aux séries
-	season := r.URL.Query().Get("season")
-	episode := r.URL.Query().Get("episode")
+	selectedURL := r.URL.Query().Get("selectedUrl") // Nouveau paramètre
 
 	if detailID == "" {
 		http.Error(w, "ID manquant", 400)
 		return
 	}
 
-	// --- CAS A : Récupération des infos (Sheet) ---
-	if infoOnly {
-		remote := fmt.Sprintf("%s/api/v1/media/%s/sheet", BaseURL, detailID)
-		resp, err := http.Get(remote)
-		if err != nil {
-			log.Printf("Erreur appel API Sheet: %v", err)
-			http.Error(w, "Erreur API Sheet", 502)
-			return
-		}
-		defer resp.Body.Close()
-
-		var sheet SheetResponse
-		// On lit tout le corps pour pouvoir le logger en cas d'erreur
-		body, _ := io.ReadAll(resp.Body)
-
-		if err := json.Unmarshal(body, &sheet); err != nil {
-			log.Printf("Erreur décodage JSON: %v | Body: %s", err, string(body))
-			http.Error(w, "Erreur décodage Sheet", 500)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-
-		// Construction de la réponse pour le JS
-		// Note: on renvoie un tableau vide pour "urls" pour éviter l'erreur .length sur le JS
-		out := map[string]interface{}{
-			"data": map[string]interface{}{
-				"items": map[string]interface{}{
-					"id":           sheet.Data.Items.ID,
-					"season_count": sheet.Data.Items.Seasons,
-					"type":         sheet.Data.Items.Type,
-					"urls":         sheet.Data.Items.Urls,
-				},
-			},
-		}
-
-		// Si Seasons est à 0 mais que c'est une TV, on force à 1 pour l'affichage
-		if sheet.Data.Items.Type == "tv" && sheet.Data.Items.Seasons == 0 {
-			out["data"].(map[string]interface{})["items"].(map[string]interface{})["season_count"] = 1
-		}
-
-		json.NewEncoder(w).Encode(out)
-		return
-	}
-
-	// --- CAS B : Téléchargement (Film ou Série) ---
-	var streamRemote string
-	if season != "" && episode != "" {
-		// C'est une série
-		streamRemote = fmt.Sprintf("%s/api/v1/stream/%s/episode?season=%s&episode=%s", BaseURL, detailID, season, episode)
-	} else {
-		// C'est un film
-		streamRemote = fmt.Sprintf("%s/api/v1/stream/%s", BaseURL, detailID)
-	}
-
-	sResp, err := http.Get(streamRemote)
-	if err != nil || sResp.StatusCode != 200 {
-		http.Error(w, "Erreur récupération lien stream", 502)
-		return
-	}
-	defer sResp.Body.Close()
-
-	var streamData StreamResponse
-	if err := json.NewDecoder(sResp.Body).Decode(&streamData); err != nil || len(streamData.Data.Items.Sources) == 0 {
-		http.Error(w, "Source introuvable", 404)
-		return
-	}
-
-	// Transformation de l'URL pour le téléchargement direct
-	rawURL := streamData.Data.Items.Sources[0].StreamURL
-	finalDownloadURL := strings.Replace(rawURL, "/stream?", "/?", 1)
-
-	// Préparation du nom de fichier
-	title := r.URL.Query().Get("title")
-	if season != "" && episode != "" {
-		title = fmt.Sprintf("%s S%sE%s", title, season, episode)
-	}
-	filename := sanitizeFileName(title) + ".mp4"
-
-	// Proxy du téléchargement
-	req, _ := http.NewRequest("GET", finalDownloadURL, nil)
-	req.Header.Set("Referer", BaseURL)
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-
-	client := &http.Client{Timeout: 0}
-	res, err := client.Do(req)
+	// --- ÉTAPE 1 : Récupération de la Sheet ---
+	remote := fmt.Sprintf("%s/api/v1/media/%s/sheet", BaseURL, detailID)
+	resp, err := http.Get(remote)
 	if err != nil {
+		http.Error(w, "Erreur API Sheet", 502)
+		return
+	}
+	defer resp.Body.Close()
+
+	var sheet SheetResponse
+	json.NewDecoder(resp.Body).Decode(&sheet)
+
+	// --- ÉTAPE 2 : Mode Info (Renvoi de la liste à l'UI) ---
+	if infoOnly && selectedURL == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(sheet)
+		return
+	}
+
+	// --- ÉTAPE 3 : Traitement du téléchargement ---
+	targetURL := selectedURL
+	// Si l'utilisateur n'a pas encore choisi mais veut télécharger, on prend la 1ère par défaut
+	if targetURL == "" && len(sheet.Data.Items.Urls) > 0 {
+		targetURL = sheet.Data.Items.Urls[0].URL
+	}
+
+	if targetURL == "" {
+		http.Error(w, "Aucune URL valide trouvée", 404)
+		return
+	}
+
+	// --- ÉTAPE 4 : Validation et Adaptation (MP4 vs M3U8) ---
+	if strings.Contains(targetURL, ".m3u8") {
+		// Logique pour M3U8 : Ici, on peut soit rediriger,
+		// soit utiliser un outil comme ffmpeg en arrière plan.
+		// Pour un proxy simple, on va juste rediriger ou prévenir.
+		http.Redirect(w, r, targetURL, http.StatusTemporaryRedirect)
+		return
+	}
+
+	// --- ÉTAPE 5 : Proxy de téléchargement pour MP4 ---
+	downloadFileProxy(w, targetURL, sheet.Data.Items.Title)
+}
+
+func downloadFileProxy(w http.ResponseWriter, targetURL string, title string) {
+	// 1. On récupère le fichier source
+	res, err := http.Get(targetURL)
+	if err != nil {
+		http.Error(w, "Erreur lors de la récupération du fichier", 502)
 		return
 	}
 	defer res.Body.Close()
 
+	// 2. IMPORTANT : On transfère la taille du fichier pour la barre de progression
+	if contentLength := res.Header.Get("Content-Length"); contentLength != "" {
+		w.Header().Set("Content-Length", contentLength)
+	}
+
+	// 3. Autoriser le JS à lire les headers (pour XMLHttpRequest)
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Disposition")
+
+	filename := sanitizeFileName(title) + ".mp4"
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.Header().Set("Content-Type", "video/mp4")
+
+	// 4. On stream le contenu
 	io.Copy(w, res.Body)
+}
+
+func m3u8Handler(w http.ResponseWriter, r *http.Request) {
+	streamURL := r.URL.Query().Get("url")
+	title := r.URL.Query().Get("title")
+
+	if streamURL == "" || title == "" {
+		http.Error(w, "Paramètres manquants", 400)
+		return
+	}
+
+	// On lance le téléchargement dans une Goroutine pour ne pas bloquer le navigateur
+	go func() {
+		err := DownloadM3U8(streamURL, title)
+		if err != nil {
+			fmt.Println("Erreur M3U8:", err)
+		}
+	}()
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Téléchargement lancé"))
+}
+
+func checkURLHandler(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("url")
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// On utilise HEAD pour ne pas consommer de bande passante
+	resp, err := client.Head(target)
+
+	status := "ok"
+	if err != nil || resp.StatusCode >= 400 {
+		status = "dead"
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
+}
+
+var m3u8Progress = make(map[string]string)
+
+func m3u8StatusHandler(w http.ResponseWriter, r *http.Request) {
+	title := r.URL.Query().Get("title")
+	status, ok := m3u8Progress[title]
+	if !ok {
+		status = "Aucun téléchargement en cours"
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
 }

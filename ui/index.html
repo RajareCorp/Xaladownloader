@@ -42,6 +42,19 @@
     </main>
 </div>
 
+<div id="source-modal" class="modal" hidden>
+    <div class="modal-content">
+        <h3 id="modal-title">Choisir une source</h3>
+        <ul id="source-list"></ul>
+        <button onclick="closeModal()" class="btn-close">Annuler</button>
+    </div>
+</div>
+
+<div id="m3u8-toast">
+    <strong style="color:var(--accent-primary)">M3U8 Downloader</strong>
+    <p id="m3u8-status-text">Préparation...</p>
+</div>
+
 <!-- ==== Script JavaScript ==== -->
 <script src="script.js"></script>
 
