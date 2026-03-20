@@ -1,9 +1,10 @@
 # 📦 XalaDownloader
 
-Un petit serveur Go qui recherche et télécharge les vidéos de Xalaflix.
+Un serveur local en Go conçu pour rechercher, explorer et télécharger du contenu multimédia depuis les API de streaming (Purstream/Xala).
+Xalaflix à clairement vendu ses utilisateurs à Purstream, un site moins sécurisé, moins performant, moins fiable et moins complet alors vous n'allez quand même pas payer pour ça, si ?
 
 **Auteur :** Rajare  
-**Version :** v1.0.0 (Fin 2025)
+**Version :** v1.0.3 (Mars 2026)
 
 ---
 
@@ -17,6 +18,23 @@ Un petit serveur Go qui recherche et télécharge les vidéos de Xalaflix.
 
 ---
 
+✨ **Fonctionnalités clés**
+
+ - 🔍 Recherche Intégrée : Trouvez vos films et séries instantanément.
+
+ - 📅 Dernières Sorties : Affichage automatique des 13 derniers ajouts.
+
+ - 🏗️ Gestion des Franchises : Navigation par plateformes (Prime Video, etc.).
+
+ - 📺 Support des Séries : Gestion complète des saisons et épisodes.
+
+ - 🚀 Mise à jour Auto : Le programme détecte et installe les nouvelles versions au démarrage.
+
+ - 🌐 Détection Dynamique : Utilise purstream.wiki pour trouver automatiquement la base API active.
+
+ - 💻 Interface Web : UI embarquée via go:embed pour une expérience fluide dans le navigateur.
+
+---
 ## ⬇️ Installation
 
 ### 1️⃣ Cloner le dépôt
@@ -56,8 +74,8 @@ Vous verrez dans le terminal :
 Ce projet est publié sous licence MIT. Voir le fichier LICENSE pour les termes complets.
 
 ## 📞 Contact
-Pseudo : Rajare
-GitHub : https://github.com/rajare
-N'hésitez pas à ouvrir une issue si vous rencontrez un bug ou avez une suggestion !
+ - Pseudo : Rajare
+ - GitHub : https://github.com/rajare
+Note : Ce projet est à but éducatif. Respectez les droits d'auteur des contenus que vous visionnez.
 
 Enjoy your downloads! 🚀
