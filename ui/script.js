@@ -3,7 +3,6 @@
 -------------------------------------------------------------- */
 const search   = document.getElementById('search');
 const results  = document.getElementById('results');
-const bar      = document.getElementById('bar');
 
 const pad = (num) => num.toString().padStart(2, '0');
 
@@ -149,15 +148,20 @@ async function showSourceSelector(title, urls, mediaId, season = "", episode = "
     document.getElementById('modal-title').textContent = title;
 
     list.innerHTML = '';
-    modal.removeAttribute('hidden'); // Affiche la modal
+    modal.removeAttribute('hidden');
 
     urls.forEach((source, index) => {
         const li = document.createElement('li');
-        li.className = 'source-item';
-        li.id = `source-${index}`;
+        li.id = `source-item-${index}`; 
+        
+        li.style.display = 'flex';
+        li.style.justifyContent = 'space-between';
+        li.style.alignItems = 'center';
+        li.style.padding = '10px';
+        li.style.transition = 'all 0.3s ease'; // Pour une transition fluide du grisage
         
         const isM3U8 = source.url.includes('.m3u8');
-        const formatBadge = isM3U8 ? '<span class="badge-m3u8">STREAM</span>' : '<span class="badge-mp4">MP4</span>';
+        const formatBadge = isM3U8 ? '<span class="badge-m3u8">TS</span>' : '<span class="badge-mp4">MP4</span>';
         
         li.innerHTML = `
             <div style="display:flex; align-items:center; gap:10px;">
@@ -165,59 +169,123 @@ async function showSourceSelector(title, urls, mediaId, season = "", episode = "
                 ${formatBadge}
                 <span>${source.name}</span>
             </div>
+            <div class="actions" style="display:flex; gap:5px;">
+                <button class="btn-live" data-url="${source.url}" style="cursor:pointer;">👁️ Live</button>
+                <button class="btn-download" style="cursor:pointer;">📥 Download</button>
+            </div>
         `;
 
-        li.onclick = () => {
+        // Action bouton LIVE (Nouvel onglet)
+        li.querySelector('.btn-live').onclick = (e) => {
+            e.stopPropagation();
+            window.open(source.url, '_blank');
+        };
+
+        // Action bouton DOWNLOAD
+        li.querySelector('.btn-download').onclick = (e) => {
+            e.stopPropagation();
             if (isM3U8) {
-                const toast = document.getElementById('m3u8-toast');
-                const statusText = document.getElementById('m3u8-status-text');
-                
-                toast.style.display = 'block';
-                
-                fetch(`/api/m3u8-download?url=${encodeURIComponent(source.url)}&title=${encodeURIComponent(title)}`);
-
-                // On crée une boucle qui demande l'état au serveur toutes les secondes
-                const checker = setInterval(async () => {
-                    const res = await fetch(`/api/m3u8-status?title=${encodeURIComponent(title)}`);
-                    const data = await res.json();
-                    
-                    statusText.textContent = data.status;
-
-                    if (data.status === "Terminé !") {
-                        clearInterval(checker);
-                        setTimeout(() => { toast.style.display = 'none'; }, 5000); // Cache après 5s
-                    }
-                }, 1000);
+                handleM3U8Download(source.url, title);
             } else {
-                // Téléchargement direct MP4 classique
+                // Pour le MP4, on force le téléchargement via l'API ou un attribut
                 const downloadUrl = `/api/download?detail=${mediaId}&selectedUrl=${encodeURIComponent(source.url)}&title=${encodeURIComponent(title)}`;
-                download(downloadUrl);
+                window.location.href = downloadUrl;
             }
             closeModal();
         };
 
         list.appendChild(li);
-
-        // --- TEST DE VALIDITÉ EN ARRIÈRE-PLAN ---
         checkLinkStatus(source.url, index);
     });
 }
 
+/**
+ * Gère le processus de téléchargement des flux M3U8 (HLS)
+ * @param {string} url - L'adresse du flux .m3u8
+ * @param {string} title - Le nom du média pour le fichier final
+ */
+async function handleM3U8Download(url, title) {
+    const toast = document.getElementById('m3u8-toast');
+    const statusText = document.getElementById('m3u8-status-text');
+    
+    // 1. Afficher l'interface de suivi
+    if (toast) {
+        toast.style.display = 'block';
+        statusText.textContent = "Initialisation...";
+    }
+
+    try {
+        // 2. Appeler ton API backend pour démarrer la conversion/téléchargement
+        // On ne met pas de "await" ici si l'API est asynchrone et répond immédiatement "OK"
+        fetch(`/api/m3u8-download?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`);
+
+        // 3. Créer une boucle de vérification (Polling)
+        const checker = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/m3u8-status?title=${encodeURIComponent(title)}`);
+                
+                if (!res.ok) throw new Error("Erreur serveur");
+                
+                const data = await res.json();
+                
+                // Mise à jour du texte (ex: "15%", "Conversion en cours...", etc.)
+                if (statusText) {
+                    statusText.textContent = data.status;
+                }
+
+                // 4. Si le serveur indique que c'est fini
+                if (data.status === "Terminé !" || data.completed === true) {
+                    clearInterval(checker);
+                    
+                    // Optionnel : masquer le toast après un délai
+                    setTimeout(() => { 
+                        if (toast) toast.style.display = 'none'; 
+                    }, 5000);
+                }
+            } catch (err) {
+                console.error("Erreur lors de la vérification du statut:", err);
+                if (statusText) statusText.textContent = "Erreur de suivi";
+                clearInterval(checker);
+            }
+        }, 1000); // Vérification toutes les secondes
+
+    } catch (error) {
+        console.error("Impossible de lancer le téléchargement M3U8:", error);
+        alert("Erreur lors du lancement du téléchargement.");
+    }
+}
+
 async function checkLinkStatus(url, index) {
     const dot = document.getElementById(`dot-${index}`);
+    const row = document.getElementById(`source-item-${index}`);
+    
     try {
         const res = await fetch(`/api/check-url?url=${encodeURIComponent(url)}`);
         const data = await res.json();
         
         dot.classList.remove('loading');
+        
         if (data.status === "ok") {
             dot.classList.add('online');
         } else {
-            dot.classList.add('offline');
-            document.getElementById(`source-${index}`).style.opacity = "0.5";
+            setOfflineState(dot, row);
         }
     } catch (e) {
-        dot.classList.add('offline');
+        dot.classList.remove('loading');
+        setOfflineState(dot, row);
+    }
+}
+
+function setOfflineState(dot, row) {
+    dot.classList.add('offline');
+    if (row) {
+        row.style.opacity = "0.4";
+        row.style.filter = "grayscale(100%)";
+        row.style.pointerEvents = "none"; // Empeche tout clic sur la ligne et ses boutons
+        row.style.cursor = "not-allowed";
+        
+        // Optionnel : Désactiver explicitement les boutons pour le style HTML
+        row.querySelectorAll('button').forEach(btn => btn.disabled = true);
     }
 }
 
@@ -304,59 +372,6 @@ function renderEpisodesFromData(media, sNum, episodesMap) {
         };
         results.appendChild(li);
     });
-}
-
-function download(apiUrl) {
-    // 1. Préparation de l'UI
-    bar.hidden = false;
-    bar.value = 0;
-    
-    // On crée la requête
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', apiUrl, true);
-    xhr.responseType = 'blob'; // On attend un fichier binaire
-
-    // 2. Suivi de la progression
-    xhr.onprogress = (event) => {
-        if (event.lengthComputable) {
-            const percentComplete = event.loaded / event.total;
-            bar.value = percentComplete; // Met à jour la barre (0 à 1)
-        }
-    };
-
-    // 3. Une fois le téléchargement terminé (dans la RAM du navigateur)
-    xhr.onload = () => {
-        if (xhr.status === 200) {
-            // Création d'un lien temporaire pour déclencher l'enregistrement sur le disque
-            const blob = xhr.response;
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            
-            // On récupère le nom du fichier via l'en-tête Content-Disposition si possible
-            // Sinon on utilise un nom générique
-            a.href = url;
-            a.download = ""; // Le navigateur utilisera le nom envoyé par Go
-            document.body.appendChild(a);
-            a.click();
-            
-            // Nettoyage
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-            
-            // Feedback final
-            setTimeout(() => { bar.hidden = true; }, 2000);
-        } else {
-            alert("Erreur lors du téléchargement (Proxy).");
-            bar.hidden = true;
-        }
-    };
-
-    xhr.onerror = () => {
-        alert("Erreur réseau.");
-        bar.hidden = true;
-    };
-
-    xhr.send();
 }
 
 window.addEventListener('DOMContentLoaded', loadLastReleases);

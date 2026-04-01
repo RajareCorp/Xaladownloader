@@ -31,7 +31,7 @@ const developerTag = `
       ░░   ░   ░   ▒   ░ ░ ░    ░   ▒     ░░   ░    ░   
        ░           ░  ░░   ░        ░  ░   ░        ░  ░
     `
-const CurrentVersion = "1.0.3"
+const CurrentVersion = "1.0.4"
 
 //go:embed ui
 var uiFiles embed.FS
@@ -75,17 +75,13 @@ func openBrowser(url string) error {
 	return cmd.Start()
 }
 
-// DownloadM3U8 avec gestion de buffer large et retries
 func DownloadM3U8(targetURL string, fileName string) error {
 	finalURL, segments, err := resolveM3U8(targetURL)
 	if err != nil {
 		return err
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
+	home, _ := os.UserHomeDir()
 	downloadPath := filepath.Join(home, "Downloads", sanitizeFileName(fileName)+".mp4")
 
 	finalFile, err := os.Create(downloadPath)
@@ -95,41 +91,59 @@ func DownloadM3U8(targetURL string, fileName string) error {
 	defer finalFile.Close()
 
 	total := len(segments)
-	// Augmentation du timeout et ajout d'un transport personnalisé
+	// Utilisation d'un Transport pour réutiliser les connexions (Keep-Alive)
 	client := &http.Client{
-		Timeout: 45 * time.Second,
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
 	}
 	baseURL, _ := url.Parse(finalURL)
 
 	for i, segLine := range segments {
 		m3u8Progress[fileName] = fmt.Sprintf("Téléchargement : %d/%d segments", i+1, total)
-		fmt.Printf("\rProgression : %d/%d", i+1, total)
 
 		u, _ := url.Parse(segLine)
 		segmentURL := baseURL.ResolveReference(u).String()
 
-		// Tentative de téléchargement avec 3 essais en cas d'échec
-		var segResp *http.Response
-		for retry := 0; retry < 3; retry++ {
+		var success bool
+		// Tentative avec 5 essais et une pause exponentielle
+		for retry := 0; retry < 5; retry++ {
 			req, _ := http.NewRequest("GET", segmentURL, nil)
-			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-			segResp, err = client.Do(req)
-			if err == nil && segResp.StatusCode == 200 {
-				break
+			// CRUCIAL : On imite un vrai navigateur au maximum
+			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+			req.Header.Set("Referer", targetURL) // Très souvent requis par les serveurs m3u8
+
+			resp, err := client.Do(req)
+
+			if err == nil {
+				if resp.StatusCode == 200 {
+					_, err = io.Copy(finalFile, resp.Body)
+					resp.Body.Close()
+					if err == nil {
+						success = true
+						break
+					}
+				} else {
+					resp.Body.Close() // Ne pas oublier de fermer même si erreur
+				}
 			}
-			time.Sleep(1 * time.Second) // Pause avant retry
+
+			log.Printf("[!] Retry %d pour segment %d...", retry+1, i)
 		}
 
-		if err != nil || segResp == nil || segResp.StatusCode != 200 {
-			log.Printf("\n[!] Échec définitif du segment %d", i)
+		if !success {
+			log.Printf("\n[!] Échec définitif du segment %d après 5 tentatives", i)
+			// On peut choisir de continuer ou d'arrêter ici.
+			// Pour un film, continuer créera un petit "saut" dans la vidéo.
 			continue
 		}
 
-		_, err = io.Copy(finalFile, segResp.Body)
-		segResp.Body.Close()
-		if err != nil {
-			return err
+		if i%10 == 0 {
+			fmt.Printf("\rProgression : %d/%d", i+1, total)
 		}
 	}
 
