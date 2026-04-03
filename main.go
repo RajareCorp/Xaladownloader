@@ -33,6 +33,8 @@ const developerTag = `
     `
 const CurrentVersion = "1.0.4"
 
+var isDocker = false
+
 //go:embed ui
 var uiFiles embed.FS
 
@@ -195,6 +197,11 @@ func main() {
 	fmt.Println(developerTag)
 	fmt.Printf("Version actuelle: %s\n", CurrentVersion)
 
+	if os.Getenv("IS_DOCKER") == "true" {
+		isDocker = true
+		fmt.Println("⚠️ Mode Docker activé : Téléchargements limités.")
+	}
+
 	// Vérifier les mises à jour en arrière-plan ou au démarrage
 	CheckForUpdates()
 	InitApp()
@@ -225,8 +232,17 @@ func main() {
 	http.HandleFunc("/api/last-releases", lastReleasesHandler)
 	http.HandleFunc("/api/franchise", franchiseHandler)
 	http.HandleFunc("/api/check-url", checkURLHandler)
-	http.HandleFunc("/api/m3u8-download", m3u8Handler)
+	http.HandleFunc("/api/m3u8-download", func(w http.ResponseWriter, r *http.Request) {
+		if isDocker {
+			http.Error(w, "Téléchargement interdit sur ce serveur", 403)
+			return
+		}
+		m3u8Handler(w, r)
+	})
 	http.HandleFunc("/api/m3u8-status", m3u8StatusHandler)
+	http.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]bool{"isDocker": isDocker})
+	})
 
 	go func() {
 		fmt.Println("Démarrage sur http://127.0.0.1:8080")

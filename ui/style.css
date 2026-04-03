@@ -475,6 +475,7 @@ form{
 
 .badge-m3u8 { background: #f39c12; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-right: 10px; }
 .badge-mp4 { background: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-right: 10px; }
+.badge-player { background: #8127ae; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; margin-right: 10px; }
 .btn-close { width: 100%; margin-top: 15px; padding: 10px; background: #c0392b; color: white; border: none; border-radius: 5px; cursor: pointer; }
 
 /* Style de base pour les deux boutons */

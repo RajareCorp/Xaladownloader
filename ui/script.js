@@ -6,6 +6,14 @@ const results  = document.getElementById('results');
 
 const pad = (num) => num.toString().padStart(2, '0');
 
+let isDocker = false;
+
+fetch('/api/config')
+    .then(res => res.json())
+    .then(config => {
+        isDocker = config.isDocker;
+    });
+
 /* --------------------------------------------------------------
     Logique de Recherche
 -------------------------------------------------------------- */
@@ -161,7 +169,8 @@ async function showSourceSelector(title, urls, mediaId, season = "", episode = "
         li.style.transition = 'all 0.3s ease'; // Pour une transition fluide du grisage
         
         const isM3U8 = source.url.includes('.m3u8');
-        const formatBadge = isM3U8 ? '<span class="badge-m3u8">TS</span>' : '<span class="badge-mp4">MP4</span>';
+        const isMP4 = source.url.includes('.mp4');
+        const formatBadge = isM3U8 ? '<span class="badge-m3u8">TS</span>' : isMP4 ? '<span class="badge-mp4">MP4</span>' : '<span class="badge-player">PLAYER</span>';
         
         li.innerHTML = `
             <div style="display:flex; align-items:center; gap:10px;">
@@ -174,6 +183,15 @@ async function showSourceSelector(title, urls, mediaId, season = "", episode = "
                 <button class="btn-download" style="cursor:pointer;">📥 Download</button>
             </div>
         `;
+
+        if(isDocker && !isMP4) {
+            // Si on est en Docker et que c'est du M3U8, on désactive le bouton de téléchargement et on ajoute un tooltip
+            const downloadBtn = li.querySelector('.btn-download');
+            downloadBtn.disabled = true;
+            downloadBtn.style.cursor = 'not-allowed';
+            downloadBtn.style.filter = "grayscale(100%)";
+            downloadBtn.style.pointerEvents = "none";
+        }
 
         // Action bouton LIVE (Nouvel onglet)
         li.querySelector('.btn-live').onclick = (e) => {
