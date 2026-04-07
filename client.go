@@ -16,12 +16,7 @@ import (
 var BaseURL string
 
 func InitApp() {
-	url, err := FetchBaseURL()
-	if err != nil {
-		BaseURL = "https://api.purstream.to"
-		return
-	}
-	BaseURL = url
+	startBaseURLRefresher(6 * time.Hour)
 	log.Println("URL détectée :", BaseURL)
 }
 
@@ -42,7 +37,7 @@ func FetchBaseURL() (string, error) {
 	// 1. Extraction de l'URL brute depuis la classe url-display
 	rawURL, exists := doc.Find("a.url-display").First().Attr("href")
 	if !exists || rawURL == "" {
-		return "https://api.purstream.to", fmt.Errorf("element .url-display introuvable")
+		return "https://api.purstream.art", fmt.Errorf("element .url-display introuvable")
 	}
 
 	// 2. Parsing de l'URL pour manipuler le Host
@@ -61,6 +56,32 @@ func FetchBaseURL() (string, error) {
 	u.Scheme = "https"
 
 	return strings.TrimRight(u.String(), "/"), nil
+}
+
+func startBaseURLRefresher(interval time.Duration) {
+	// Premier appel au démarrage pour initialiser la variable
+	updateURL()
+
+	// Ticker pour les prochaines mises à jour
+	ticker := time.NewTicker(interval)
+	go func() {
+		for range ticker.C {
+			updateURL()
+		}
+	}()
+}
+
+func updateURL() {
+	newURL, err := FetchBaseURL()
+	if err != nil {
+		log.Printf("Erreur lors du rafraîchissement auto de l'URL : %v", err)
+		return
+	}
+
+	// On met à jour la variable globale (BaseURL)
+	// Idéalement, utilise un Mutex ici si tu as beaucoup de trafic
+	BaseURL = newURL
+	log.Printf("BaseURL mise à jour automatiquement : %s", BaseURL)
 }
 
 func fetchMedia(ctx context.Context, query string) ([]Media, error) {

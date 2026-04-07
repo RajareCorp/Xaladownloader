@@ -4,7 +4,7 @@ Un serveur local en Go conçu pour rechercher, explorer et télécharger du cont
 Xalaflix à clairement vendu ses utilisateurs à Purstream, un site moins sécurisé, moins performant, moins fiable et moins complet alors vous n'allez quand même pas payer pour ça, si ?
 
 **Auteur :** Rajare  
-**Version :** v1.0.4 (Avril 2026)
+**Version :** v1.0.5 (Avril 2026)
 
 ---
 

@@ -31,7 +31,7 @@ const developerTag = `
       ░░   ░   ░   ▒   ░ ░ ░    ░   ▒     ░░   ░    ░   
        ░           ░  ░░   ░        ░  ░   ░        ░  ░
     `
-const CurrentVersion = "1.0.4"
+const CurrentVersion = "1.0.5"
 
 var isDocker = false
 
@@ -231,6 +231,7 @@ func main() {
 	http.HandleFunc("/api/download", downloadHandler)
 	http.HandleFunc("/api/last-releases", lastReleasesHandler)
 	http.HandleFunc("/api/franchise", franchiseHandler)
+	http.HandleFunc("/api/catalog", catalogHandler)
 	http.HandleFunc("/api/check-url", checkURLHandler)
 	http.HandleFunc("/api/m3u8-download", func(w http.ResponseWriter, r *http.Request) {
 		if isDocker {

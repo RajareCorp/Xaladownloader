@@ -62,6 +62,38 @@ async function loadFranchise(id) {
     }
 }
 
+async function loadCatalog(type, page = 1) {
+    // Feedback visuel : on peut changer l'état des boutons ici
+    results.innerHTML = '<li style="width:100%; text-align:center; padding: 2rem;">' +
+                        '<div class="loading-spinner"></div> Chargement du catalogue...</li>';
+    
+    try {
+        const res = await fetch(`/api/catalog?type=${type}&page=${page}`);
+        if (!res.ok) throw new Error();
+        const items = await res.json();
+        
+        // On réutilise ton moteur de rendu ultra-propre
+        renderMediaList(items);
+        
+        // On rajoute un bouton de pagination simple si on a 100 résultats (indiquant qu'il y en a potentiellement plus)
+        if (items.length === 100) {
+            const loadMoreBtn = document.createElement('li');
+            loadMoreBtn.style.width = "100%";
+            loadMoreBtn.style.background = "var(--accent-primary)";
+            loadMoreBtn.innerHTML = `<span class="title">Charger plus...</span>`;
+            loadMoreBtn.onclick = () => loadCatalog(type, page + 1);
+            results.appendChild(loadMoreBtn);
+        }
+
+        // On scroll un peu vers les résultats pour le confort mobile
+        window.scrollTo({ top: search.offsetTop - 20, behavior: 'smooth' });
+        
+    } catch (e) {
+        results.innerHTML = '<li style="color:var(--accent-primary); width:100%; text-align:center;">' +
+                            'Catalogue indisponible pour le moment.</li>';
+    }
+}
+
 async function loadLastReleases() {
     const container = document.getElementById('last-releases-list');
     try {
@@ -315,7 +347,7 @@ function closeModal() {
 
 function renderMediaList(items) {
     results.innerHTML = items.map(m => {
-        const dateStr = m.updated ? new Date(m.updated).toLocaleDateString('fr-FR') : 'Inconnue';
+        const dateStr = m.updatedAt ? new Date(m.updatedAt).toLocaleDateString('fr-FR') : 'Inconnue';
         const badge = m.kind === "tv" 
             ? '<div class="badge-series">SÉRIE</div>' 
             : `<div class="badge-film">${m.runtime}</div>`;
