@@ -1,6 +1,19 @@
 # 📦 XalaDownloader
 
-Un serveur local en Go conçu pour rechercher, explorer et télécharger du contenu multimédia depuis les API de streaming (Purstream/Xala).
+```
+     ██▀███   ▄▄▄      ▄▄▄██▀▀▀▄▄▄       ██▀███  ▓█████ 
+    ▓██ ▒ ██▒▒████▄      ▒██  ▒████▄    ▓██ ▒ ██▒▓█   ▀ 
+    ▓██ ░▄█ ▒▒██  ▀█▄    ░██  ▒██  ▀█▄  ▓██ ░▄█ ▒▒███   
+    ▒██▀▀█▄  ░██▄▄▄▄██▓██▄██▓ ░██▄▄▄▄██ ▒██▀▀█▄  ▒▓█  ▄ 
+    ░██▓ ▒██▒ ▓█   ▓██▒▓███▒   ▓█   ▓██▒░██▓ ▒██▒░▒████▒
+    ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░▒▓▒▒░   ▒▒   ▓▒█░░ ▒▓ ░▒▓░░░ ▒░ ░
+      ░▒ ░ ▒░  ▒   ▒▒ ░▒ ░▒░    ▒   ▒▒ ░  ░▒ ░ ▒░ ░ ░  ░
+      ░░   ░   ░   ▒   ░ ░ ░    ░   ▒     ░░   ░    ░   
+       ░           ░  ░░   ░        ░  ░   ░        ░  ░
+```
+
+Un serveur local en Go conçu pour rechercher, explorer et télécharger du contenu multimédia depuis l'API de streaming de Purstream.
+
 Xalaflix à clairement vendu ses utilisateurs à Purstream, un site moins sécurisé, moins performant, moins fiable et moins complet alors vous n'allez quand même pas payer pour ça, si ?
 
 **Auteur :** Rajare  
@@ -26,7 +39,7 @@ Xalaflix à clairement vendu ses utilisateurs à Purstream, un site moins sécur
 
  - 🏗️ Gestion des Franchises : Navigation par plateformes (Prime Video, etc.).
 
- - 📺 Support des Séries : Gestion complète des saisons et épisodes.
+ - 📺 Support des Séries : Gestion complète des saisons et épisodes (**Sans abonnement**).
 
  - 🚀 Mise à jour Auto : Le programme détecte et installe les nouvelles versions au démarrage.
 
@@ -76,6 +89,6 @@ Ce projet est publié sous licence MIT. Voir le fichier LICENSE pour les termes 
 ## 📞 Contact
  - Pseudo : Rajare
  - GitHub : https://github.com/rajare
-Note : Ce projet est à but éducatif. Respectez les droits d'auteur des contenus que vous visionnez.
+ - Note : Ce projet est à but éducatif. Respectez les droits d'auteur des contenus que vous visionnez.
 
 Enjoy your downloads! 🚀
